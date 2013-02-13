@@ -79,44 +79,91 @@ unsigned int DwarfSymbolResolver::destroyDwarfSymbolResolver(DwarfSymbolResolver
 #include <iostream>
 using namespace std;
 
-unsigned int DwarfSymbolResolver::resolveFunction(const ExecutionContext& context, void *addr, const FunctionSymbol **function) const {
+unsigned int DwarfSymbolResolver::findFunction(void *addr, FunctionEntry *fe) const {
 	list<FunctionEntry>		functions;
 	list<FunctionEntry>::iterator	fit;
 
-	cerr << "F:" << addr << endl;
 	if (indexer != 0) {
 		functions = indexer->getFunctions();
 
 		for (fit = functions.begin(); fit != functions.end(); fit++) {
-			
+			if (fit->lopc <= (Dwarf_Addr) addr && (Dwarf_Addr) addr < fit->hipc) {
+				*fe = *fit;
+				return 0;
+			}
 		}
 	}
+
 	return 1;
 }
 
-unsigned int DwarfSymbolResolver::resolveVariable(const ExecutionContext& context, void *addr, size_t size, const VariableSymbol **variable) const {
-	// *variable = new DwarfVariable("testvariable");
-	// cerr << "resolveVariable: " << addr << " (" << size << ")" << endl;
-
+unsigned int DwarfSymbolResolver::findGlobalVariable(const ExecutionContext &context, void *addr, size_t size, struct VarEntry *ve) const {
 	list<VarEntry> 			variables;
 	list<VarEntry>::iterator	vit;
-	void*				ip;
 
 	if (indexer != 0) {
 		variables = indexer->getVariables();
 		
-		for (vit = variables.begin(); vit != variables.end(); vit++) {
-			//cerr << vit->name << endl;		
+		for (vit = variables.begin(); vit != variables.end(); vit++) {		
 			void* vaddr;
-			size_t vsize = 4;
+			size_t vsize = 4; // TODO: set the size correctly
 			if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr) == 0) {
 				if (addr >= vaddr && addr < vaddr + vsize) {
-					cerr << vit->name << endl;
+					*ve = *vit;
+					return 0;
 				}
 			}
-		}
-
-			
+		}			
 	}
+	return 1;
+}
+
+unsigned int DwarfSymbolResolver::findLocalVariable(const ExecutionContext &context, void *addr, size_t size, const struct FunctionEntry &fe, struct VarEntry *ve) const {
+	list<VarEntry> 			variables;
+	list<VarEntry>::iterator	vit;
+
+	cerr << "Lookup local. (" << fe.name << ")" << endl;
+
+	variables = DwarfIndexer::getVariables(fe);
+	for (vit = variables.begin(); vit != variables.end(); vit++) {		
+		void* vaddr;
+		size_t vsize = 4; // TODO: set the size correctly
+		if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr) == 0) {
+			if (addr >= vaddr && addr < vaddr + vsize) {
+				cerr << "Local: " << vit->name << endl;
+				*ve = *vit;
+				return 0;
+			}
+		}
+	}
+
+	return 1;
+}
+
+unsigned int DwarfSymbolResolver::resolveFunction(const ExecutionContext& context, void *addr, const FunctionSymbol **function) const {
+	FunctionEntry fe;	
+
+	findFunction(addr, &fe);
+
+	return 1;
+}
+
+unsigned int DwarfSymbolResolver::resolveVariable(const ExecutionContext& context, void *addr, size_t size, const VariableSymbol **variable) const {
+	void 		*ip;
+	VarEntry 	ve;
+	FunctionEntry	fe;
+	
+	if (findGlobalVariable(context, addr, size, &ve) == 0) {
+	}
+
+	if (context.getInstructionPointer(&ip) != 0) {
+		return 2;
+	}
+
+	if (findFunction(ip, &fe) == 0) {
+		if (findLocalVariable(context, addr, size, fe, &ve) == 0) {
+		}
+	}
+
 	return 1;
 }

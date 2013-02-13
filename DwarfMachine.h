@@ -84,6 +84,8 @@ private:
 
 	void op_default(unsigned char);
 	void op_addr(unsigned long long, unsigned long long);
+	void op_breg4(unsigned long long, unsigned long long);
+	void op_fb_reg(unsigned long long, unsigned long long);
 public:
 	static unsigned int evaluateLocation(const class ExecutionContext&, const DwarfScriptList&, void**);
 	static unsigned int evaluate(const class ExecutionContext&, const DwarfScriptList&, StackValue*);

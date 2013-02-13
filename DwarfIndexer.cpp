@@ -67,6 +67,27 @@ Dwarf_Off DwarfIndexer::getDwarfRefOffset(Dwarf_Die die, Dwarf_Half attr, Dwarf_
 	}
 }
 
+unsigned int DwarfIndexer::getDwarfPC(Dwarf_Die die, Dwarf_Addr* p_lopc, Dwarf_Addr* p_hipc, Dwarf_Error dwarf_error) {
+	Dwarf_Addr	lowpc;
+	Dwarf_Addr	hipc;
+
+	if (dwarf_lowpc(die, &lowpc, &dwarf_error) != DW_DLV_OK) {
+		return 1;
+	}
+	if (dwarf_highpc(die, &hipc, &dwarf_error) != DW_DLV_OK) {
+		return 2;
+	}
+
+	if (p_lopc != 0) {
+		*p_lopc = lowpc;
+	}
+	if (p_hipc != 0) {
+		*p_hipc = hipc;
+	}
+
+	return 0;
+}
+
 unsigned int DwarfIndexer::getDwarfScriptList(Dwarf_Die die, Dwarf_Half attr, DwarfScriptList &scriptlist, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
 	int		res = 0;
 	Dwarf_Attribute	dw_attr;
@@ -321,6 +342,7 @@ unsigned int DwarfIndexer::visitSubProgram(DwarfIndex &index, Dwarf_Die sp_die, 
 	string 			name;
 	Dwarf_Off		offset;
 	Dwarf_Off		rettype;
+	Dwarf_Addr		lopc, hipc;
 	FunctionEntry		*fe;
 
 	name = getDwarfName(sp_die, dwarf_handle, dwarf_error);
@@ -328,9 +350,16 @@ unsigned int DwarfIndexer::visitSubProgram(DwarfIndex &index, Dwarf_Die sp_die, 
 	rettype = getDwarfRefOffset(sp_die, DW_AT_type, dwarf_handle, dwarf_error);
 	cerr << name.c_str() << endl;
 
+	if (getDwarfPC(sp_die, &lopc, &hipc, dwarf_error) != 0) {
+		cerr << "Warning: could not read lowpc or hipc" << endl;
+		lopc = hipc = 0;
+	}
+
 	fe = new FunctionEntry;
 	fe->name = name;
 	fe->return_type = rettype;
+	fe->lopc = lopc;
+	fe->hipc = hipc;
 
 	DwarfIndex local_index = { index.types, fe->variables, index.functions };
 
@@ -354,6 +383,18 @@ list<VarEntry> DwarfIndexer::getVariables() const {
 
 	return vars;
 }
+
+list<VarEntry> DwarfIndexer::getVariables(const FunctionEntry &fe) {
+	list<VarEntry> vars;
+	map<Dwarf_Off, VarEntry*>::const_iterator vit;
+
+	for (vit = fe.variables.begin(); vit != fe.variables.end(); vit++) {
+		vars.push_back(*vit->second);
+	}
+
+	return vars;
+}
+
 
 list<FunctionEntry> DwarfIndexer::getFunctions() const {
 	list<FunctionEntry> funcs;

@@ -34,16 +34,21 @@ public:
      static unsigned int createDwarfSymbolResolver(Elf *, DwarfSymbolResolver **);
      static unsigned int destroyDwarfSymbolResolver(DwarfSymbolResolver **);
 
+private:
+     unsigned int findFunction(void *addr, struct FunctionEntry *fe)												const;
+     unsigned int findGlobalVariable(const ExecutionContext &context, void *addr, size_t size, struct VarEntry *ve)						const; 
+     unsigned int findLocalVariable(const ExecutionContext &context, void *addr, size_t size, const struct FunctionEntry &fe, struct VarEntry *ve)		const;
+public:
      // this method resolves a function from an address within the target,
      // given an ExecutionContext of the target. On success, a pointer to the resolved function will be stored in *function.
      // returns zero on success, non-zero on failure.
      // NOTE: if the context is modified while this method is executing, the result will be undefined.
-     virtual unsigned int resolveFunction(const ExecutionContext& context, void *addr, const FunctionSymbol **function)			const;
+     virtual unsigned int resolveFunction(const ExecutionContext &context, void *addr, const FunctionSymbol **function)			const;
      // this method resolves a variable from an address-size pair within the target,
      // given an ExecutionContext of the target. On success, a pointer to the resolved variable will be stored in *variable.
      // returns zero on success, non-zero on failure.
      // NOTE: if the context is modified while this method is executing, the result will be undefined.
-     virtual unsigned int resolveVariable(const ExecutionContext& context, void *addr, size_t size, const VariableSymbol **variable)	const;
+     virtual unsigned int resolveVariable(const ExecutionContext &context, void *addr, size_t size, const VariableSymbol **variable)	const;
 };
 
 #endif // DWARFSYMBOLRESOLVER_H

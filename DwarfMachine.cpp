@@ -65,7 +65,9 @@ void DwarfMachine::step() {
 
 void DwarfMachine::op(unsigned char opcode, unsigned long long operand1, unsigned long long operand2) {
 	switch(opcode) {
-	case DW_OP_addr: op_addr(operand1, operand2); break;
+	case DW_OP_addr:	op_addr(operand1, operand2);	break;
+	case DW_OP_breg4:	op_breg4(operand1, operand2);	break;
+	case DW_OP_fbreg:	op_fb_reg(operand1, operand2);	break;
 	default:
 		op_default(opcode);
 	break;
@@ -135,4 +137,14 @@ void DwarfMachine::op_default(unsigned char opcode) {
 
 void DwarfMachine::op_addr(unsigned long long operand1, unsigned long long operand2) {
 	push((void*) operand1);
+}
+
+void DwarfMachine::op_breg4(unsigned long long operand1, unsigned long long operand2) {
+	unsigned long value;
+	if (context.getRegisterValue((enum eRegister) 4, &value) == 0) {
+	}
+}
+
+void DwarfMachine::op_fb_reg(unsigned long long operand1, unsigned long long operand2) {
+
 }

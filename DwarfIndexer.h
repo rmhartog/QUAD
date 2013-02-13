@@ -35,6 +35,8 @@ struct DwarfIndex {
 struct FunctionEntry {
      std::string 				name;
      Dwarf_Off					return_type;
+     Dwarf_Addr					lopc;
+     Dwarf_Addr					hipc;
 
      std::map<Dwarf_Off, struct VarEntry*>	variables;
 };
@@ -50,6 +52,7 @@ private:
      static std::string		getDwarfName(Dwarf_Die, Dwarf_Debug, Dwarf_Error);
      static Dwarf_Off		getDwarfOffset(Dwarf_Die, Dwarf_Debug, Dwarf_Error);
      static Dwarf_Off		getDwarfRefOffset(Dwarf_Die, Dwarf_Half, Dwarf_Debug, Dwarf_Error);
+     static unsigned int	getDwarfPC(Dwarf_Die, Dwarf_Addr*, Dwarf_Addr*, Dwarf_Error);
      static unsigned int 	getDwarfScriptList(Dwarf_Die, Dwarf_Half, DwarfScriptList &, Dwarf_Debug, Dwarf_Error);
      static unsigned int	getChildren(Dwarf_Die, std::list<Dwarf_Die>&, Dwarf_Debug, Dwarf_Error);
 public:
@@ -64,8 +67,9 @@ public:
      unsigned int visitVariable(DwarfIndex&, Dwarf_Die, Dwarf_Debug, Dwarf_Error);
      unsigned int visitSubProgram(DwarfIndex&, Dwarf_Die, Dwarf_Debug, Dwarf_Error);
 
-     std::list<VarEntry>	getVariables()	const;
-     std::list<FunctionEntry>	getFunctions()	const;
+     std::list<VarEntry>	getVariables()				const;
+     static std::list<VarEntry>	getVariables(const FunctionEntry&);
+     std::list<FunctionEntry>	getFunctions()				const;
 };
 
 #endif // DWARFINDEXER_H
