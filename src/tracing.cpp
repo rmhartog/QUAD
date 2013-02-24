@@ -1,10 +1,66 @@
 /*
- * tracing.h
+
+QUAD
+
+This tool is part of QUAD Toolset
+http://sourceforge.net/projects/quadtoolset
+
+Copyright © 2008-2011 Arash Ostadzadeh (ostadzadeh@gmail.com)
+http://ce.et.tudelft.nl/~arash/
+
+
+This file is part of QUADcore.
+
+QUADcore is free software: you can redistribute it and/or modify 
+it under the terms of the GNU Lesser General Public License as 
+published by the Free Software Foundation, either version 3 of 
+the License, or (at your option) any later version.
+
+QUADcore is distributed in the hope that it will be useful, but 
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
+or FITNESS FOR A PARTICULAR PURPOSE.  
+
+See the GNU Lesser General Public License for more details. You should have 
+received a copy of the GNU Lesser General Public License along with QUADcore.
+If not, see <http://www.gnu.org/licenses/>.
+
+--------------
+<LEGAL NOTICE>
+--------------
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.  Redistributions
+in binary form must reproduce the above copyright notice, this list of
+conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution. The names of the contributors 
+must be retained to endorse or promote products derived from this software.
+ 
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL ITS CONTRIBUTORS 
+BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF 
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER 
+IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF 
+THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+
+//==============================================================================
+/* tracing.cpp: 
+ * The tracing routines, used by QUAD tool
  *
- * Authour : S. Arash Ostadzadeh (ostadzadeh@gmail.com)
- * Authour : Roel Meeuws (r.j.meeuws@gmail.com)
- *
- */
+ *  Authors: Arash Ostadzadeh
+ *           Roel Meeuws
+*/
+//==============================================================================
+
 
 #include "tracing.h"
 
@@ -100,13 +156,13 @@ int CreateTotalStatFile()
 	cerr<< "\nCreating summary report file (ML_OV_Summary.txt) containing information about the functions specified in the monitor list..." << endl;
 
 	out <<setw(30)<<setiosflags(ios::left)<<"Function"<<setw(12)<<"   IN_ML"
-		<<setw(12)<<" IN_ML_UMA"
+		<<setw(12)<<" IN_ML_UnMA"
 		<<setw(12)<<"  OUT_ML"
-		<<setw(12)<<"OUT_ML_UMA"
+		<<setw(12)<<"OUT_ML_UnMA"
 		<<setw(12)<<"  IN_ALL"
-		<<setw(12)<<"IN_ALL_UMA"
+		<<setw(12)<<"IN_ALL_UnMA"
 		<<setw(12)<<"  OUT_ALL"
-		<<setw(12)<<"OUT_ALL_UMA"
+		<<setw(12)<<"OUT_ALL_UnMA"
 		<<endl;
 
 	out <<setw(30)<<"-----------------------------"<<setw(12)<<"-----------"
@@ -166,14 +222,14 @@ int CreateTotalStatFile()
 
 	out << endl << "--" << endl;
 	out << "IN_ML -> Total number of bytes read by this function that a function in the monitor list is responsible for producing the value(s) of the byte(s)" << endl;
-	out << "IN_ML_UMA -> Total number of unique memory addresses used corresponding to 'IN_ML'" << endl;
+	out << "IN_ML_UnMA -> Total number of unique memory addresses used corresponding to 'IN_ML'" << endl;
 	out << "OUT_ML -> Total number of bytes read by a function in the monitor list that this function is responsible for producing the value(s) of the byte(s)" << endl;
-	out << "OUT_ML_UMA -> Total number of unique memory addresses used corresponding to 'OUT_ML'" << endl;
+	out << "OUT_ML_UnMA -> Total number of unique memory addresses used corresponding to 'OUT_ML'" << endl;
 
 	out << "IN_ALL -> Total number of bytes read by this function that a function in the application is responsible for producing the value(s) of the byte(s)" << endl;
-	out << "IN_ALL_UMA -> Total number of unique memory addresses used corresponding to 'IN_ALL'" << endl;
+	out << "IN_ALL_UnMA -> Total number of unique memory addresses used corresponding to 'IN_ALL'" << endl;
 	out << "OUT_ALL -> Total number of bytes read by a function in the application that this function is responsible for producing the value(s) of the byte(s)" << endl;
-	out << "OUT_ALL_UMA -> Total number of unique memory addresses used corresponding to 'OUT_ALL'" << endl;
+	out << "OUT_ALL_UnMA -> Total number of unique memory addresses used corresponding to 'OUT_ALL'" << endl;
 
 	out.close();
 	return 0;
@@ -223,18 +279,18 @@ int IsNewFunc(ADDRINT fadd)
 	return 0; /* function address exists in the list */
 }
 //------------------------------------------------------------------------------------------
-void set2ranges(set<ADDRINT>* UNMAs, vector<Range> & ranges)
+void set2ranges(set<ADDRINT>* UnMAs, vector<Range> & ranges)
 {
 	ADDRINT curr, next; 
 	Range r;
-	set<ADDRINT>::const_iterator pos = UNMAs->begin();
-	while(pos != UNMAs->end()) 
+	set<ADDRINT>::const_iterator pos = UnMAs->begin();
+	while(pos != UnMAs->end()) 
 	{  
 		curr= *pos;
 		next= *(++pos);
 		//cout<<curr<<'-';
 		r.lower = curr;
-		while( (next == curr + 1 ) && (pos != UNMAs->end() )  )
+		while( (next == curr + 1 ) && (pos != UnMAs->end() )  )
 		{
 			curr=*pos;
 			next= *(++pos);
@@ -275,7 +331,8 @@ void recTrieTraverse(struct trieNode* current,int level)
 						break;
 				}	
 				
-				if(IsNewFunc( temp->producer ) ) {
+				if(IsNewFunc( temp->producer ) ) 
+				{
 					fprintf(gfp,"\"%08x\" [label=\"%s", (unsigned int)temp->producer, prodName.c_str());
 					if(KnobBBFuncCount.Value()==TRUE) { 
 						fprintf(gfp," count:%d", FunctionToCount[NameToFunction[prodName]]);
@@ -283,7 +340,8 @@ void recTrieTraverse(struct trieNode* current,int level)
 					fprintf(gfp,"\"];\n");
 				}
 
-				if(IsNewFunc( temp->consumer ) ) {
+				if(IsNewFunc( temp->consumer ) ) 
+				{
 					fprintf(gfp,"\"%08x\" [label=\"%s", (unsigned int)temp->consumer, consName.c_str());
 					if(KnobBBFuncCount.Value()==TRUE) { 
 						fprintf(gfp," count:%d", FunctionToCount[NameToFunction[consName]]);
@@ -297,21 +355,25 @@ void recTrieTraverse(struct trieNode* current,int level)
 				unsigned long int unma = temp->UniqueMemCells->size();
 				float unmaPerCall = 0;
 				if(KnobBBFuncCount.Value()==TRUE && 
-				  FunctionToCount[NameToFunction[consName]]>0) {
+				  FunctionToCount[NameToFunction[consName]]>0) 
+				{
 					unmaPerCall = ((float)unma/FunctionToCount[NameToFunction[consName]]);
 				};
 				
 				fprintf(gfp,"\"%08x\" -> \"%08x\"  [label=",(unsigned int)temp->producer,(unsigned int)temp->consumer);
-				if(KnobDotShowBytes.Value()==TRUE) {
+				if(KnobDotShowBytes.Value()==TRUE) 
+				{
 					fprintf(gfp,"\"%llu Bytes\\n",temp->data_exchange);
 				}
 				fprintf(gfp,"%lu UnMAs \\n",unma);
 				if(KnobBBFuncCount.Value()==TRUE && 
-				  FunctionToCount[NameToFunction[consName]]>0) {
+				  FunctionToCount[NameToFunction[consName]]>0) 
+				{
 					fprintf(gfp,"%8.3f UnMAs/call\\n",unmaPerCall);
 				}
 
-				if(KnobDotShowUnDVs.Value()==TRUE) {
+				if(KnobDotShowUnDVs.Value()==TRUE) 
+				{
 					fprintf(gfp,"%llu UnDVs\\n",temp->UniqueValues);
 				}
 				
@@ -321,16 +383,20 @@ void recTrieTraverse(struct trieNode* current,int level)
 				set2ranges(temp->UniqueMemCells, ranges);
 				q2xml->insertChannel(new Channel(prodName,consName,ranges,temp->UniqueMemCells->size(),temp->data_exchange,temp->UniqueValues));
 
-				if(KnobDotShowRanges.Value()==TRUE) {
+				if(KnobDotShowRanges.Value()==TRUE) 
+				{
 					vector<Range>::iterator it = ranges.begin();
 					int crt=0;
-					while(it!=ranges.end()) {
+					while(it!=ranges.end()) 
+					{
 						fprintf(gfp,"(%8x-%8x)",(*it).lower,(*it).upper);
 #ifdef QUAD_LIBELF
 						map<string,GlobalSymbol*>::iterator its = globalSymbols.begin();
-						while(its!=globalSymbols.end()) {
+						while(its!=globalSymbols.end()) 
+						{
 							if(its->second->start<=it->lower &&
-							  its->second->start+its->second->size>=it->upper) {
+							  its->second->start+its->second->size>=it->upper) 
+							{
 								fprintf(gfp," from %s (%2.1f%%)",its->first.c_str(),
 								  its->second->size!=0?((it->upper-it->lower+1)/(float)its->second->size)*100:100);
 								break;
@@ -341,12 +407,14 @@ void recTrieTraverse(struct trieNode* current,int level)
 						fprintf(gfp,"\\n");
 						it++;
 						crt++;
-						if(KnobDotShowRangesLimit.Value()<crt+1) {
+						if(KnobDotShowRangesLimit.Value()<crt+1) 
+						{
 							break;
 						}
 					}
 					
-					if(it!=ranges.end()) {
+					if(it!=ranges.end()) 
+					{
 						fprintf(gfp," and other...\\n");
 					}
 				}
@@ -393,14 +461,14 @@ int CreateDSGraphFile()
    fprintf(gfp,"digraph {\ngraph [];\nnode [fontcolor=black, style=filled, fontsize=20];\nedge [fontsize=14, arrowhead=vee, arrowsize=0.5];\n");
 
    cerr << "writing QDU graph..." << endl; 
-   recTrieTraverse(graphRoot,0);
+   if(graphRoot)
+		recTrieTraverse(graphRoot,0);
 
    /* write epilogue */
    cerr << "writing QDU graph epilogue..." << endl; 
    fprintf(gfp,"}\n");
    
    cerr << "writing <QUAD> in the XML file ...\n";
-   
    
 	try
 	{
@@ -412,11 +480,11 @@ int CreateDSGraphFile()
 		cerr << ex.what();
 	}
    
-   
-   delete q2xml;   
+   delete q2xml;
    fclose(gfp);	
    return 0;
-}                                               
+}
+
 //------------------------------------------------------------------------------------------
 int RecordCommunicationInDSGraph(ADDRINT producer, ADDRINT consumer, ADDRINT locAddr, struct trieNode * currentLPold)
 {

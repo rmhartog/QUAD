@@ -64,7 +64,11 @@ ifdef OS
 endif
 
 ifeq ($(TARGET_COMPILER),gnu)
-    include $(PIN_HOME)/source/tools/makefile.gnu.config
+    ifeq ($(wildcard $(PIN_HOME)/source/tools/makefile.gnu.config),)
+      $(error "QUAD was tested with pintools-2.12-55942. Are you using a newer (unsupported version?")
+    else
+      include $(PIN_HOME)/source/tools/makefile.gnu.config
+    endif
     LINKER?=${CXX}
     CXXFLAGS ?= -Wall -Wno-unknown-pragmas $(DBG) $(OPT)
     PIN=$(PIN_HOME)/pin
@@ -81,29 +85,47 @@ endif
 ##############################################################
 #CXXFLAGS+=-pg
 #LDFLAGS+=-pg
+<<<<<<< HEAD
 
 CXXXMLFLAGS=-O3 -g -DTIXML_USE_TICPP -fPIC $(LIBELF_CXXFLAGS) $(LIBDWARF_CXXFLAGS)
+=======
+SRCDIR=./src
+INCDIR=./include
+CXXFLAGS+=$(LIBELF_CXXFLAGS)
+CXXXMLFLAGS=-O3 -g -DTIXML_USE_TICPP -fPIC $(LIBELF_CXXFLAGS)
+>>>>>>> upstream/master
 #-std=c++0x
-INCLUDES=-I.
+INCLUDES=-I$(INCDIR)
 TOOL_ROOTS = QUAD
 TOOLS = $(TOOL_ROOTS:%=$(OBJDIR)%$(PINTOOL_SUFFIX))
 
 TINYXMLSRCS = ticpp.cpp tinystr.cpp tinyxml.cpp tinyxmlerror.cpp tinyxmlparser.cpp
 Q2XMLSRCS = RenewalFlags.cpp Channel.cpp Q2XMLFile.cpp Exception.cpp $(TINYXMLSRCS)
-XMLOBJS = $(Q2XMLSRCS:%.cpp=%.o)
+XMLOBJS = $(Q2XMLSRCS:%.cpp=$(OBJDIR)%.o)
 
 #add the names of more CPP files here for the added functionality in QUAD
+<<<<<<< HEAD
 # RenewalFlags.cpp is directly included in file
 CPPSRCS = BBlock.cpp Utility.cpp ElfSymbolResolver.cpp DwarfSymbolResolver.cpp DwarfIndexer.cpp DwarfMachine.cpp PinExecutionContext.cpp
 CPPOBJS = $(CPPSRCS:%.cpp=%.oo)
 CPPFLAGS = -O3
 CPPINCS=-I.
+=======
+CPPSRCS = BBlock.cpp Utility.cpp
+CPPOBJS = $(CPPSRCS:%.cpp=$(OBJDIR)%.oo)
+CPPFLAGS = -O3 -fPIC
+CPPINCS = -I$(INCDIR)
+>>>>>>> upstream/master
 
 ##############################################################
 # build rules
 ##############################################################
 all: tools
+<<<<<<< HEAD
 tools: $(CPPOBJS) $(XMLOBJS) $(OBJDIR) $(TOOLS) $(TESTAPP)
+=======
+tools: $(OBJDIR) $(CPPOBJS) $(XMLOBJS) $(TOOLS) $(OBJDIR)cp-pin.exe
+>>>>>>> upstream/master
 test: $(OBJDIR) $(TOOL_ROOTS:%=%.test)
 
 QUAD.test: $(TESTAPP)
@@ -115,20 +137,31 @@ $(OBJDIR)cp-pin.exe:
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
-# This is added because tracing.cpp is included in QUAD.cpp. This is BAD PRACTICE
+# TODO: This is added because tracing.cpp is included in QUAD.cpp. This is BAD PRACTICE
 # and could be solved by making a QUAD.h, but I do not have time now.
+<<<<<<< HEAD
 $(OBJDIR)QUAD.oo: QUAD.cpp tracing.cpp
 	$(CXX) -c $(CXXFLAGS) $(PIN_CXXFLAGS) ${OUTOPT}$@ QUAD.cpp
 
 $(OBJDIR)%.o : %.cpp
 	$(CXX) -c $(CXXFLAGS) $(PIN_CXXFLAGS) ${OUTOPT}$@ $<
+=======
+$(OBJDIR)QUAD.o: $(SRCDIR)/QUAD.cpp $(SRCDIR)/tracing.cpp
+	$(CXX) $(INCLUDES) -c $(CXXFLAGS) $(PIN_CXXFLAGS) ${OUTOPT}$@ $(SRCDIR)/QUAD.cpp
+>>>>>>> upstream/master
 
-%.o: %.cpp
+$(OBJDIR)%.o: $(SRCDIR)/%.cpp
 	$(CXX) $(INCLUDES) $(PIN_CXXFLAGS) $(CXXXMLFLAGS) -c $< -o  $@
 
+<<<<<<< HEAD
 %.oo: %.cpp
 	$(CXX) $(CPPINCS) $(PIN_CXXFLAGS) $(CPPFLAGS) -c $< -o $@
 	
+=======
+$(OBJDIR)%.oo: $(SRCDIR)/%.cpp
+	$(CXX) $(CPPINCS) $(CPPFLAGS) -c $< -o $@
+
+>>>>>>> upstream/master
 $(TOOLS): $(PIN_LIBNAMES)
 
 $(TOOLS): %$(PINTOOL_SUFFIX) : %.o %.oo
@@ -136,5 +169,5 @@ $(TOOLS): %$(PINTOOL_SUFFIX) : %.o %.oo
 
 ## cleaning
 clean:
-	-rm -rf $(OBJDIR) *.out *.tested *.failed makefile.copy $(XMLOBJS) $(CPPOBJS) *~
+	-rm -rf $(OBJDIR) *.out *.tested *.failed makefile.copy $(XMLOBJS) $(CPPOBJS) *~ $(SRCDIR)/*~ $(INCDIR)/*~  
 

@@ -1,10 +1,67 @@
 /*
- * QUAD.cpp 
+
+QUAD
+
+This tool is part of QUAD Toolset
+http://sourceforge.net/projects/quadtoolset
+
+Copyright © 2008-2011 Arash Ostadzadeh (ostadzadeh@gmail.com)
+http://ce.et.tudelft.nl/~arash/
+
+
+This file is part of QUADcore.
+
+QUADcore is free software: you can redistribute it and/or modify 
+it under the terms of the GNU Lesser General Public License as 
+published by the Free Software Foundation, either version 3 of 
+the License, or (at your option) any later version.
+
+QUADcore is distributed in the hope that it will be useful, but 
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY 
+or FITNESS FOR A PARTICULAR PURPOSE.  
+
+See the GNU Lesser General Public License for more details. You should have 
+received a copy of the GNU Lesser General Public License along with QUADcore.
+If not, see <http://www.gnu.org/licenses/>.
+
+--------------
+<LEGAL NOTICE>
+--------------
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.  Redistributions
+in binary form must reproduce the above copyright notice, this list of
+conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution. The names of the contributors 
+must be retained to endorse or promote products derived from this software.
+ 
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL ITS CONTRIBUTORS 
+BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF 
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER 
+IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF 
+THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+
+//==============================================================================
+/* QUADcore.cpp: 
+ * This file contains the main routines for the QUAD core tool which detects the 
+ * actual data dependencies between the functions in a program.
  *
- * Authour : S. Arash Ostadzadeh (ostadzadeh@gmail.com)
- * Authour : Roel Meeuws (r.j.meeuws@gmail.com)
- *
- */
+ *  Authors: Arash Ostadzadeh
+ *           Roel Meeuws
+*/
+//==============================================================================
+
 
 // when a monitor file is provided, a list of communicating functions with each kernel is extracted from the profile data and stored
 // separately for each function in the monitor list in two modes (In one the kernel is acting as a producer, in the other, as a consumer.
@@ -22,6 +79,7 @@
 #include <stack>
 #include <set>
 #include <map>
+#include <algorithm>
 
 #include "Channel.h"
 #include "Exception.h"
@@ -77,7 +135,6 @@ void dwarf_handler(Dwarf_Error err, Dwarf_Ptr arg) {
 /* ===================================================================== */
 /* Global Variables */
 /* ===================================================================== */
-
 Q2XMLFile *q2xml; // also used in Tracing.cpp
 BBList bblist;		//list of BBlocks
 
@@ -96,7 +153,6 @@ class GlobalSymbol {
 
 map <string, GlobalSymbol*> globalSymbols;
 
-
 stack <string> CallStack; // our own virtual Call Stack to trace function call
 
 set<string> SeenFname;
@@ -109,15 +165,12 @@ UINT32 Progress_M_Ins=0;
 UINT32 Percentage=0;
 
 BOOL Count_Only = FALSE;
-
 BOOL Monitor_ON = FALSE;
 BOOL Include_External_Images=FALSE; // a flag showing our interest to trace functions which are not included in the main image file
-
+BOOL Select_Instr_ON = FALSE;
 BOOL Uncommon_Functions_Filter=TRUE;
-
 BOOL No_Stack_Flag = FALSE;   // a flag showing our interest to include or exclude stack memory accesses in analysis. The default value indicates tracing also the stack accesses. Can be modified by 'ignore_stack_access' command line switch
 BOOL Verbose_ON = FALSE;  // a flag showing the interest to print something when the tool is running or not!
-
 BOOL BBMODE = FALSE;
 
 // A mapping between the name used and the functions names. This is needed
@@ -143,7 +196,7 @@ typedef struct
 TTL_ML_Data_Pack ;
    
 map <string,TTL_ML_Data_Pack *> ML_OUTPUT ;  // used to maintain info regarding monitor list statistics
-
+vector <string> SIFL_OUTPUT;	//used to maintain selected instrument functions names
 char fileName[FILENAME_MAX];
 char cCurrentPath[FILENAME_MAX];
 /* ===================================================================== */
@@ -181,18 +234,20 @@ KNOB<int> KnobDotShowRangesLimit(KNOB_MODE_WRITEONCE, "pintool",
 	"dotShowRangesLimit","3", "Set dotDotShowRangesLimit to the maximum number of ranges you want to show.");
 
 KNOB<string> KnobXML(KNOB_MODE_WRITEONCE, "pintool",
-	"xmlfile","dek_arch.xml", "Specify file name for output data in XML format");
+	"xmlfile","q2profiling.xml", "Specify file name for output data in XML format (default q2profiling.xml)");
 
 KNOB<string> KnobApplication(KNOB_MODE_WRITEONCE, "pintool", 
-	"applic","", "Specify application name for XML file format");
+	"applic","testAPPlication", "Specify application name for XML file format (default testAPPlication)");
 
-// TODO: This should be determined automatically (vladms)
-KNOB<string> KnobElf(KNOB_MODE_WRITEONCE, "pintool", 
-	"elf","", "Specify the name of the elf file (this works only if libelf support is compiled in QUAD).");
+KNOB<BOOL> KnobElf(KNOB_MODE_WRITEONCE, "pintool", 
+	"elf","0", "Set to 1 to enable variable names from elf file (this works only if libelf support is compiled in QUAD).");
 
 KNOB<string> KnobMonitorList(KNOB_MODE_WRITEONCE, "pintool", 
 	"use_monitor_list","", "Create output report files only for certain function(s) in the application and filter out the rest (the functions are listed in a text file whose name follows)");
-	
+
+KNOB<string> KnobInstrumentSelectedFtns(KNOB_MODE_WRITEONCE, "pintool", 
+	 "instrument_selected_functions","", "Instrument only the selected function(s) (the functions are listed in a text file whose name follows)");
+								 
 KNOB<BOOL> KnobIgnoreStackAccess(KNOB_MODE_WRITEONCE, "pintool",
 	"ignore_stack_access","0", "Ignore memory accesses within application's stack region");
 
@@ -696,33 +751,12 @@ static VOID RecordMem(CONTEXT * context, CHAR r, VOID * addr, INT32 size, BOOL i
 {
 	if(!isPrefetch) // if this is not a prefetch memory access instruction  
 	{
-		#ifdef QUAD_LIBDWARF
-		findDwarfVariable(context, addr, size);
-		#endif
-
-		string ftnName=CallStack.top();
-		if(!SeenFname.count(ftnName))  // this is the first time I see this function name in charge of access
+		if(No_Stack_Flag)
 		{
-			SeenFname.insert(ftnName);  // mark this function name as seen
-			GlobalfunctionNo++;      // create a dummy Function Number for this function
-			NametoADD[ftnName]=GlobalfunctionNo;   // create the string -> Number binding
-			ADDtoName[GlobalfunctionNo]=ftnName;   // create the Number -> String binding
-		} 
-		
-		for(int i=0;i<size;i++)
-		{
-			RecordMemoryAccess((ADDRINT)addr,NametoADD[ftnName],r=='W');
-			addr=((char *)addr)+1;  // cast not needed anyway!
-		}//end for
-	}// end of not a prefetch
-}
+			ADDRINT esp = PIN_GetContextReg(context, REG_ESP);
+			if (addr >= esp) return;  // if we are reading from the stack range, ignore this access
+		}
 
-/* ===================================================================== */
-
-static VOID RecordMemSP(CONTEXT * context, VOID * ESP, CHAR r, VOID * addr, INT32 size, BOOL isPrefetch)
-{
-	if(!isPrefetch) // if this is not a prefetch memory access instruction  
-	{
 		string ftnName=CallStack.top(); //top of the stack is the currently open function
 		
 		if(BBMODE)
@@ -744,8 +778,6 @@ static VOID RecordMemSP(CONTEXT * context, VOID * ESP, CHAR r, VOID * addr, INT3
 			}
 		}
 		
-		if (addr >= ESP) return;  // if we are reading from the stack range, ignore this access
-
 		if(!SeenFname.count(ftnName))  // this is the first time I see this function name in charge of access
 		{
 			SeenFname.insert(ftnName);  // mark this function name as seen
@@ -797,9 +829,63 @@ VOID IncreaseTotalInstCounter()
 // Is called for every instruction and instruments reads and writes and the Ret instruction
 VOID Instruction(INS ins, VOID *v)
 {
-	
+	//TODO: this should not be here as it will be an overhead even if we dont want to show progress
+	// a flag can be set to see if we need progress reporting or not
 	INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)IncreaseTotalInstCounter, IARG_END);
 
+	if (!Count_Only) //no need to record memory accesses in count only mode
+	{
+		//Real filter for functions in Monitor List
+		//record memory access by those functions only which are inside the selected instrumentation function list
+		string currFtnName = CallStack.top();
+		bool inSIFList = ( std::find(SIFL_OUTPUT.begin(), SIFL_OUTPUT.end(), currFtnName) != SIFL_OUTPUT.end() );
+			
+		if( (Select_Instr_ON == FALSE) || (inSIFList == TRUE ) )
+		{
+			if (INS_IsMemoryRead(ins) || INS_IsStackRead(ins) )
+			{
+				INS_InsertPredicatedCall
+					(
+					ins, IPOINT_BEFORE, (AFUNPTR)RecordMem,
+					IARG_CONTEXT,
+					IARG_UINT32, 'R',
+					IARG_MEMORYREAD_EA,
+					IARG_MEMORYREAD_SIZE,
+					IARG_UINT32, INS_IsPrefetch(ins),
+					IARG_END
+					);
+			}
+
+			if (INS_HasMemoryRead2(ins))
+			{
+				INS_InsertPredicatedCall
+					(
+					ins, IPOINT_BEFORE, (AFUNPTR)RecordMem,
+					IARG_CONTEXT,
+					IARG_UINT32, 'R',
+					IARG_MEMORYREAD2_EA,
+					IARG_MEMORYREAD_SIZE,
+					IARG_UINT32, INS_IsPrefetch(ins),
+					IARG_END
+					);
+			}
+
+			if (INS_IsMemoryWrite(ins) || INS_IsStackWrite(ins) ) 
+			{
+				INS_InsertPredicatedCall
+					(
+					ins, IPOINT_BEFORE, (AFUNPTR)RecordMem,
+					IARG_CONTEXT,
+					IARG_UINT32, 'W',
+					IARG_MEMORYWRITE_EA,
+					IARG_MEMORYWRITE_SIZE,
+					IARG_UINT32, INS_IsPrefetch(ins),
+					IARG_END
+					);
+			}
+		}
+	}
+	
 	if (INS_IsRet(ins))  	
 	{
 		// we are monitoring the 'ret' instructions since we need to know when we are leaving functions 
@@ -809,88 +895,6 @@ VOID Instruction(INS ins, VOID *v)
 		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)Return, IARG_INST_PTR, IARG_END);
 	}
 
-	if (!Count_Only)
-	{
-		if (!No_Stack_Flag)
-		{
-			if (INS_IsMemoryRead(ins) || INS_IsStackRead(ins) )
-			{
-				INS_InsertPredicatedCall(
-					ins, IPOINT_BEFORE, (AFUNPTR)RecordMem,
-					IARG_CONTEXT,
-					IARG_UINT32, 'R',
-					IARG_MEMORYREAD_EA,
-					IARG_MEMORYREAD_SIZE,
-					IARG_UINT32, INS_IsPrefetch(ins),
-					IARG_END);
-			}
-
-			if (INS_HasMemoryRead2(ins))
-			{
-				INS_InsertPredicatedCall(
-					ins, IPOINT_BEFORE, (AFUNPTR)RecordMem,
-					IARG_CONTEXT,
-					IARG_UINT32, 'R',
-					IARG_MEMORYREAD2_EA,
-					IARG_MEMORYREAD_SIZE,
-					IARG_UINT32, INS_IsPrefetch(ins),
-					IARG_END);
-			}
-
-			if (INS_IsMemoryWrite(ins) || INS_IsStackWrite(ins) ) 
-			{
-				INS_InsertPredicatedCall(
-					ins, IPOINT_BEFORE, (AFUNPTR)RecordMem,
-					IARG_CONTEXT,
-					IARG_UINT32, 'W',
-					IARG_MEMORYWRITE_EA,
-					IARG_MEMORYWRITE_SIZE,
-					IARG_UINT32, INS_IsPrefetch(ins),
-					IARG_END);
-			}
-		} // end of Stack is ok!
-		else  // ignore stack access
-		{
-			if (INS_IsMemoryRead(ins) )
-			{
-			INS_InsertPredicatedCall(
-					ins, IPOINT_BEFORE, (AFUNPTR)RecordMemSP,
-					IARG_CONTEXT,
-					IARG_REG_VALUE, REG_STACK_PTR,
-					IARG_UINT32, 'R',
-					IARG_MEMORYREAD_EA,
-					IARG_MEMORYREAD_SIZE,
-					IARG_UINT32, INS_IsPrefetch(ins),
-					IARG_END);
-			}
-
-			if (INS_HasMemoryRead2(ins))
-			{
-				INS_InsertPredicatedCall(
-					ins, IPOINT_BEFORE, (AFUNPTR)RecordMemSP,
-					IARG_CONTEXT,
-					IARG_REG_VALUE, REG_STACK_PTR,
-					IARG_UINT32, 'R',
-					IARG_MEMORYREAD2_EA,
-					IARG_MEMORYREAD_SIZE,
-					IARG_UINT32, INS_IsPrefetch(ins),
-					IARG_END);
-			}
-
-			if (INS_IsMemoryWrite(ins)) 
-			{
-				INS_InsertPredicatedCall(
-					ins, IPOINT_BEFORE, (AFUNPTR)RecordMemSP,
-					IARG_CONTEXT,
-					IARG_REG_VALUE, REG_STACK_PTR,
-					IARG_UINT32, 'W',
-					IARG_MEMORYWRITE_EA,
-					IARG_MEMORYWRITE_SIZE,
-					IARG_UINT32, INS_IsPrefetch(ins),
-					IARG_END);
-			}
-		} // end of ignore stack 
-	}
 }
 
 /* ===================================================================== */
@@ -907,15 +911,8 @@ const char * StripPath(const char * path)
 
 int main(int argc, char *argv[])
 {
-	char fileNameOnly[FILENAME_MAX]="test.c";
-	if (!GetCurrentDir(fileName, sizeof(fileName) ) )
-		return -1;
-	
-	strcat(fileName, "/");
-	strcat(fileName, fileNameOnly);
-
 	cerr << endl << "Initializing QUAD framework..." << endl;
-	string xmlfilename,monitorfilename,bbFileName;
+	string xmlfilename,monitorfilename,bbFileName,selInstrfilename;
 	string applicationName;
 	char temp[100];
 
@@ -938,7 +935,7 @@ int main(int argc, char *argv[])
 	Progress_M_Ins = KnobProgress_M_Ins.Value();
 	Progress_Ins = KnobProgress_Ins.Value();
 #ifndef QUAD_LIBELF
-	if(KnobElf.Value().size()>0) {
+	if(KnobElf.Value()) {
 		printf("ERROR: Trying to use Elf file option when libelf support not compiled in QUAD\n");
 	}
 #endif
@@ -951,24 +948,33 @@ int main(int argc, char *argv[])
 	
 	No_Stack_Flag=KnobIgnoreStackAccess.Value(); // Stack access ok or not?
 	monitorfilename=KnobMonitorList.Value(); // this is the name of the monitorlist file to use
+	selInstrfilename=KnobInstrumentSelectedFtns.Value(); // this is the name of the file to use for selected instrumentation
 	Uncommon_Functions_Filter=KnobIgnoreUncommonFNames.Value(); // interested in uncommon function names or not?
 	Include_External_Images=KnobIncludeExternalImages.Value(); // include/exclude external image files?
 	Verbose_ON=KnobVerbose_ON.Value();  // print something or not during execution
 
 	if (!Count_Only)
 	{
+		// ------------------ basic block file processing ----------------------------------
 		if(BBMODE)
 		{
 			//initialize the basic blocks from file specified
 			bblist.initFromFile(bbFileName);
 		}
-	
-		// parse the command line arguments for the main image name and the status of the monitorlist flag
+		// ----------------------------------------------------------------------------------
+		
+		// ------------------ XML file pre-processing ---------------------------------------   
+		string ns("q2:");
+		q2xml = new Q2XMLFile(xmlfilename,ns,applicationName);
+		// ----------------------------------------------------------------------------------
+		
+		// ------------------ flag setting and image name ------------------------------------   
+		Monitor_ON = !monitorfilename.empty();	//set the flag if monitor file is specified
+		Select_Instr_ON = !selInstrfilename.empty(); //set the flag if selected instrumentation file is specified
+		
+		// parse the command line arguments for the main image name
 		for (int i=1;i<argc-1;i++)
 		{
-			if (!strcmp(argv[i],"-use_monitor_list") ) 
-				Monitor_ON = TRUE;
-		
 			if (!strcmp(argv[i],"--")) 
 			{
 				strcpy(temp,argv[i+1]);
@@ -976,18 +982,44 @@ int main(int argc, char *argv[])
 			}   
 		}
 		strcpy(main_image_name,StripPath(temp));
-
-		// ------------------ XML file pre-processing ---------------------------------------   
-		string ns("q2:");
-		string fileName("q2profiling.xml");
-		q2xml = new Q2XMLFile(fileName,ns,applicationName);
-		// ------------------ Monitorlist file processing ---------------------------------------   
+		// ----------------------------------------------------------------------------------
+		
+		// ------------------ Selected Instrumentation file processing -----------------------------------
+		if(Select_Instr_ON)
+		{
+			string item;
+			int itemCount=0;	//count of the items on list, to give a warning in case its empty
+			ifstream selfilterin;
+			selfilterin.open(selInstrfilename.c_str());
+			if (!selfilterin)
+			{
+				cerr<<"\nCan not open the selected instrumentation function list file ("<<selInstrfilename.c_str()<<")... Aborting!\n";
+				return 4;
+			}
+			
+			while( ! (selfilterin.eof()) )
+			{
+				selfilterin>>item;	// get the next function name in the monitor list
+				if( !item.empty() )
+				{
+					SIFL_OUTPUT.push_back(item);
+					itemCount++;
+				}
+			}
+			if(itemCount == 0)
+			{
+				cerr<<"\nSpecified selected instrumentation function list file ("<<selInstrfilename.c_str()<<") is empty\n"
+					<<"Specify at least 1 function in the list... Aborting!\n";
+				return 4;
+			}
+			selfilterin.close();
+		}
+		
+		// ------------------ Monitorlist file processing -----------------------------------
 		if (Monitor_ON)  // user is interested in filtering out 
 		{
 			ifstream monitorin;
-		
 			monitorin.open(monitorfilename.c_str());
-		
 			if (!monitorin)
 			{
 				cerr<<"\nCan not open the monitor list file ("<<monitorfilename.c_str()<<")... Aborting!\n";
@@ -996,32 +1028,41 @@ int main(int argc, char *argv[])
 		
 			TTL_ML_Data_Pack * DPP;
 			string item;
-
-			do
+			int itemCount=0;	//count of the items on list, to give a warning in case its empty
+			while(!monitorin.eof())
 			{
 				monitorin>>item;	// get the next function name in the monitor list
-				if (monitorin.eof()) break;	// oops we are finished!
-				DPP=new TTL_ML_Data_Pack;
-				if (!DPP) 
+				if (!item.empty())
 				{
-					cerr<<"\nMemory allocation failure in monitor list construction... Aborting!\n";
-					return 5;
+					
+					DPP=new TTL_ML_Data_Pack;
+					if (!DPP) 
+					{
+						cerr<<"\nMemory allocation failure in monitor list construction... Aborting!\n";
+						return 5;
+					}
+				
+					DPP->total_IN_ML=0;
+					DPP->total_OUT_ML=0;
+					DPP->total_IN_ML_UMA=0;
+					DPP->total_OUT_ML_UMA=0;
+					DPP->total_IN_ALL=0;
+					DPP->total_OUT_ALL=0;
+					DPP->total_IN_ALL_UMA=0;
+					DPP->total_OUT_ALL_UMA=0;
+				
+					ML_OUTPUT[item]=DPP;
+					itemCount++;
 				}
+			}
 			
-				DPP->total_IN_ML=0;
-				DPP->total_OUT_ML=0;
-				DPP->total_IN_ML_UMA=0;
-				DPP->total_OUT_ML_UMA=0;
-				DPP->total_IN_ALL=0;
-				DPP->total_OUT_ALL=0;
-				DPP->total_IN_ALL_UMA=0;
-				DPP->total_OUT_ALL_UMA=0;
-			
-				ML_OUTPUT[item]=DPP;
-		
-			} while(1);	
-
-			monitorin.close();	    
+			if(itemCount == 0)
+			{
+				cerr<<"\nSpecified Monitor list file ("<<selInstrfilename.c_str()<<") is empty\n"
+					<<"Specify at least 1 function in the list... Aborting!\n";
+				return 4;
+			}
+			monitorin.close();
 		}    
 		// -----------------------------------------------------------------------------------------   
 
@@ -1035,15 +1076,11 @@ int main(int argc, char *argv[])
 	cerr << "Starting the application to be analysed..." << endl;
 
 #ifdef QUAD_LIBELF
-	// rmhartog temporary
-	if(KnobElf.Value().size()>0 || true) {
-		const char* fname = KnobElf.Value().c_str();
-		// rmhartog temporary
-		fname = "./obj-ia32/test";		
-
-		//ElfSymbolResolver::createElfSymbolResolver(&symbol_resolver, fname);
-
-		int elf_fd = open(fname,O_RDONLY);
+	if(KnobElf.Value()) {
+		string elfName(main_image_name);
+		int elf_fd = open(elfName.c_str(),O_RDONLY);
+		Elf* elf;
+		
 		if (elf_version(EV_CURRENT) == EV_NONE) {
 			cerr << "ERROR: ELF library initialization failed: " << elf_errmsg(-1) << endl;
 		}
@@ -1062,7 +1099,9 @@ int main(int argc, char *argv[])
 
 		if(elf_handle==NULL) {
 			printf("ERROR: ELF loading failed: %s",elf_errmsg(-1));
-		} else {
+		} 
+		else 
+		{
 			Elf_Scn *scn;
 			int symbol_count, i;
 			Elf_Data *edata =NULL;
@@ -1070,24 +1109,29 @@ int main(int argc, char *argv[])
 			GElf_Sym sym;
 			scn = NULL; 
 			
-			if (Verbose_ON) {
+			if (Verbose_ON) 
+			{
 				printf("  QUAD global variable detection enabled\n");
 			}
 			while ((scn = elf_nextscn(elf_handle, scn)) != NULL) { 
 				if (gelf_getshdr(scn, &shdr) != &shdr)
 					printf( "getshdr() failed: %s.", elf_errmsg(-1));
-				if(shdr.sh_type == SHT_SYMTAB) {
+				if(shdr.sh_type == SHT_SYMTAB) 
+				{
 					edata = elf_getdata(scn, edata);
 					symbol_count = shdr.sh_size / shdr.sh_entsize;
 					
 					// loop through to grab all symbols
-					for(i = 0; i < symbol_count; i++) {
+					for(i = 0; i < symbol_count; i++) 
+					{
 						// libelf grabs the symbol data using gelf_getsym()
 						gelf_getsym(edata, i, &sym);
 						
 						if(ELF32_ST_BIND(sym.st_info)==STB_GLOBAL &&
-						  ELF32_ST_TYPE(sym.st_info)==STT_OBJECT && sym.st_size>0) {
-							if (Verbose_ON) {
+						  ELF32_ST_TYPE(sym.st_info)==STT_OBJECT && sym.st_size>0) 
+						{
+							if (Verbose_ON) 
+							{
 								printf("    Symbol name %s (%08x %08d)\n",
 								  elf_strptr(elf_handle, shdr.sh_link, sym.st_name),
 								  (int)sym.st_value, (int)sym.st_size);
