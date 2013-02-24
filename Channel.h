@@ -23,7 +23,7 @@ typedef struct
 {
 	ADDRINT lower;
 	ADDRINT upper;
-}Range;
+} Range;
 
 using namespace std;
 
