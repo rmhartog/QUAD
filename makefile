@@ -38,6 +38,11 @@ else
     $(warning To take advantage of all the features of QUAD please point LIBELF_INC to the include directory where libelf is installed (ex: /usr/local/include))
 endif
 
+ifdef LIBDWARF_INC
+    LIBDWARF_CXXFLAGS=-I$(LIBDWARF_INC) -I$(LIBDWARF_INC)/libelf -DQUAD_LIBDWARF
+else
+    $(warning To take advantage of all the features of QUAD please point LIBDWARF_INC to the include directory where libdwarf is installed (ex: /usr/local/include))
+endif
 
 ##############################################################
 #
@@ -47,7 +52,7 @@ endif
 
 PIN_KIT=$(PIN_HOME)
 KIT=1
-TESTAPP=$(OBJDIR)cp-pin.exe
+TESTAPP=$(OBJDIR)test
 
 CXX=g++
 
@@ -77,7 +82,7 @@ endif
 #CXXFLAGS+=-pg
 #LDFLAGS+=-pg
 
-CXXXMLFLAGS=-O3 -g -DTIXML_USE_TICPP -fPIC $(LIBELF_CXXFLAGS)
+CXXXMLFLAGS=-O3 -g -DTIXML_USE_TICPP -fPIC $(LIBELF_CXXFLAGS) $(LIBDWARF_CXXFLAGS)
 #-std=c++0x
 INCLUDES=-I.
 TOOL_ROOTS = QUAD
@@ -89,20 +94,20 @@ XMLOBJS = $(Q2XMLSRCS:%.cpp=%.o)
 
 #add the names of more CPP files here for the added functionality in QUAD
 # RenewalFlags.cpp is directly included in file
-CPPSRCS = BBlock.cpp Utility.cpp
+CPPSRCS = BBlock.cpp Utility.cpp ElfSymbolResolver.cpp DwarfSymbolResolver.cpp DwarfIndexer.cpp DwarfMachine.cpp PinExecutionContext.cpp
 CPPOBJS = $(CPPSRCS:%.cpp=%.oo)
 CPPFLAGS = -O3
-CPPINCS = -I. 
+CPPINCS=-I.
 
 ##############################################################
 # build rules
 ##############################################################
 all: tools
-tools: $(CPPOBJS) $(XMLOBJS) $(OBJDIR) $(TOOLS) $(OBJDIR)cp-pin.exe
+tools: $(CPPOBJS) $(XMLOBJS) $(OBJDIR) $(TOOLS) $(TESTAPP)
 test: $(OBJDIR) $(TOOL_ROOTS:%=%.test)
 
-QUAD.test: $(OBJDIR)cp-pin.exe
-      $(MAKE) -k -C QUAD PIN_HOME=$(PIN_HOME)
+QUAD.test: $(TESTAPP)
+     $(MAKE) -k -C QUAD PIN_HOME=$(PIN_HOME)
 
 $(OBJDIR)cp-pin.exe:
 	$(CXX) $(PIN_HOME)/source/tools/Tests/cp-pin.cpp $(APP_CXXFLAGS) $(CPPOBJS) $(XMLOBJS) -o $(OBJDIR)cp-pin.exe
@@ -112,7 +117,7 @@ $(OBJDIR):
 
 # This is added because tracing.cpp is included in QUAD.cpp. This is BAD PRACTICE
 # and could be solved by making a QUAD.h, but I do not have time now.
-$(OBJDIR)QUAD.o: QUAD.cpp tracing.cpp
+$(OBJDIR)QUAD.oo: QUAD.cpp tracing.cpp
 	$(CXX) -c $(CXXFLAGS) $(PIN_CXXFLAGS) ${OUTOPT}$@ QUAD.cpp
 
 $(OBJDIR)%.o : %.cpp
@@ -122,11 +127,11 @@ $(OBJDIR)%.o : %.cpp
 	$(CXX) $(INCLUDES) $(PIN_CXXFLAGS) $(CXXXMLFLAGS) -c $< -o  $@
 
 %.oo: %.cpp
-	$(CXX) $(CPPINCS) $(CPPFLAGS) -c $< -o $@
-
+	$(CXX) $(CPPINCS) $(PIN_CXXFLAGS) $(CPPFLAGS) -c $< -o $@
+	
 $(TOOLS): $(PIN_LIBNAMES)
 
-$(TOOLS): %$(PINTOOL_SUFFIX) : %.o
+$(TOOLS): %$(PINTOOL_SUFFIX) : %.o %.oo
 	${LINKER} $(PIN_LDFLAGS) $(LINK_DEBUG) ${LINK_OUT}$@ $< $(CPPOBJS) $(XMLOBJS) ${PIN_LPATHS} $(PIN_LIBS) $(DBG) $(LDFLAGS)
 
 ## cleaning
