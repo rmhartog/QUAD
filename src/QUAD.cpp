@@ -89,19 +89,17 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include "PinExecutionContext.h"
 #include "SymbolResolver.h"
 
-#define QUAD_LIBELF
+SymbolResolver *symbol_resolver = 0;
 #ifdef QUAD_LIBELF
 #include "gelf.h"
 #include "ElfSymbolResolver.h"
 Elf* elf_handle;
 #endif
 
-#define QUAD_LIBDWARF
 #ifdef QUAD_LIBDWARF
 #include "DwarfSymbolResolver.h"
 #include "dwarf.h"
 #include "libdwarf.h"
-DwarfSymbolResolver *symbol_resolver;
 
 Dwarf_Debug dwarf_handle = 0;
 Dwarf_Error dwarf_error;
@@ -524,12 +522,17 @@ VOID popDwarfStack(VOID* ip) {
 	}
 }
 
-VOID findDwarfVariable(CONTEXT* context, VOID* addr, INT32 size) {
+#endif // QUAD_LIBDWARF
+
+VOID findVariable(CONTEXT* context, VOID* addr, INT32 size) {
 	const VariableSymbol* vars;
 	const PinExecutionContext pin_context(context);
 
+	if (symbol_resolver == 0) return;
+
+	cerr << " testing " << endl;
+
 	if (symbol_resolver->resolveVariable(pin_context, addr, size, &vars) == 0) {
-		cerr << "ELFVAR: ";
 		char buffer[256];
 		if (vars != 0) {
 			vars->getName(buffer, 256);
@@ -537,18 +540,7 @@ VOID findDwarfVariable(CONTEXT* context, VOID* addr, INT32 size) {
 			delete vars;
 		}
 	}
-
-	set<Variable>::iterator var;
-	if (dwarfCallStack.size() > 0) {
-		for(var = dwarfCallStack.top().variables.begin(); var != dwarfCallStack.top().variables.end(); var++) {
-			if ((*var).isLocatedAt(addr, context)) {
-				cerr << (*var).name << endl;
-			}
-		}
-	}
 }
-
-#endif // QUAD_LIBDWARF
 
 /* ===================================================================== */
 VOID EnterFC(CONTEXT *context, VOID *ip, char *name,bool flag) 
@@ -721,7 +713,7 @@ VOID Fini(INT32 code, VOID *v)
     cerr << "\nFinished executing the instrumented application..." << endl;
 
 #ifdef QUAD_LIBDWARF
-	DwarfSymbolResolver::destroyDwarfSymbolResolver(&symbol_resolver);
+	DwarfSymbolResolver::destroyDwarfSymbolResolver((DwarfSymbolResolver**) &symbol_resolver);
 
     if (dwarf_handle != 0) {
         dwarf_finish(dwarf_handle, &dwarf_error);
@@ -753,9 +745,11 @@ static VOID RecordMem(CONTEXT * context, CHAR r, VOID * addr, INT32 size, BOOL i
 	{
 		if(No_Stack_Flag)
 		{
-			ADDRINT esp = PIN_GetContextReg(context, REG_ESP);
+			VOID * esp = (VOID *) PIN_GetContextReg(context, REG_ESP);
 			if (addr >= esp) return;  // if we are reading from the stack range, ignore this access
 		}
+
+		findVariable(context, addr, size);
 
 		string ftnName=CallStack.top(); //top of the stack is the currently open function
 		
@@ -1078,21 +1072,20 @@ int main(int argc, char *argv[])
 #ifdef QUAD_LIBELF
 	if(KnobElf.Value()) {
 		string elfName(main_image_name);
-		int elf_fd = open(elfName.c_str(),O_RDONLY);
-		Elf* elf;
+		elfName = "./" + elfName;
+		cerr << "ELF filename: " << elfName << endl;
+		int elf_fd = open(elfName.c_str(), O_RDONLY);
 		
 		if (elf_version(EV_CURRENT) == EV_NONE) {
 			cerr << "ERROR: ELF library initialization failed: " << elf_errmsg(-1) << endl;
 		}
 	
-		elf_handle = elf_begin(elf_fd, ELF_C_READ ,NULL);
+		elf_handle = elf_begin(elf_fd, ELF_C_READ, NULL);
 #ifdef QUAD_LIBDWARF
-		DwarfSymbolResolver::createDwarfSymbolResolver(elf_handle, &symbol_resolver);
-
-		if (dwarf_elf_init(elf_handle, DW_DLC_READ, &dwarf_handler, 0, &dwarf_handle, &dwarf_error) != DW_DLV_OK) {
-			cerr << "ERROR: Dwarf init failed" << endl;
-		} else {
-			findDwarfSubPrograms();
+		if (elf_handle != NULL) {
+			cerr << "Creating DWARF symbol resolver" << endl;
+			DwarfSymbolResolver::createDwarfSymbolResolver(elf_handle, (DwarfSymbolResolver**) &symbol_resolver);
+			cerr << "Success." << endl;
 		}
 #endif // QUAD_LIBDWARF
 		// We read the symbol array

@@ -12,6 +12,8 @@
 #include "DwarfSymbolResolver.h"
 	
 #include <string.h>
+#include <iostream>
+using namespace std;
 
 void internal_dwarf_handler(Dwarf_Error err, Dwarf_Ptr arg) {
 }
