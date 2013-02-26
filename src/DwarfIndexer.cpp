@@ -113,7 +113,6 @@ unsigned int DwarfIndexer::getDwarfScriptList(Dwarf_Die die, Dwarf_Half attr, Dw
 	
 	if ((res = dwarf_attr(die, attr, &dw_attr, &dwarf_error)) == DW_DLV_OK) {
 		if ((res = dwarf_loclist_n(dw_attr, &llbuf, &lcnt, &dwarf_error)) == DW_DLV_OK) {
-			cerr << "Loclist: " << lcnt << endl;
 			for (int i = 0; i < lcnt; i++) {
 				DwarfLocationScript dls;
 
@@ -369,8 +368,7 @@ unsigned int DwarfIndexer::visitVariable(DwarfIndex &index, Dwarf_Die variable_d
 	ve->name = name;
 	ve->type = type;
 	if (getDwarfScriptList(variable_die, DW_AT_location, ve->location, dwarf_handle, dwarf_error) != 0) {
-		delete ve;
-		return 1;
+		cerr << "Warning: variable " << ve->name << " has no location." << endl;
 	}
 
 	index.variables[offset] = ve;
@@ -381,7 +379,6 @@ unsigned int DwarfIndexer::visitVariable(DwarfIndex &index, Dwarf_Die variable_d
 }
 
 unsigned int DwarfIndexer::visitSubProgram(DwarfIndex &index, Dwarf_Die sp_die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
-	cerr << "subprogram" << endl;
 	string 			name;
 	Dwarf_Off		offset;
 	Dwarf_Off		rettype;
@@ -405,7 +402,7 @@ unsigned int DwarfIndexer::visitSubProgram(DwarfIndex &index, Dwarf_Die sp_die, 
 	fe->hipc = hipc;
 
 	if (getDwarfScriptList(sp_die, DW_AT_frame_base, fe->frame_base, dwarf_handle, dwarf_error, CU_lopc) != 0) {
-		return 1;
+		cerr << "Warning: function " << fe->name << " has no frame_base." << endl;
 	}
 
 	DwarfIndex local_index = { index.types, fe->variables, index.functions };
