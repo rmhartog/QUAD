@@ -65,11 +65,12 @@ class DwarfMachine
 private:
 	const class ExecutionContext	&context;
 	const DwarfScript		&script;
+	const struct FunctionEntry	*function;
 	enum eMachineState		state;
 	unsigned long long		instruction;
 	std::stack<StackValue>		stack;
 
-	DwarfMachine(const class ExecutionContext&, const DwarfScript&);
+	DwarfMachine(const class ExecutionContext&, const DwarfScript&, const struct FunctionEntry*);
 	~DwarfMachine();
 
 	bool isInState(enum eMachineState);
@@ -77,6 +78,7 @@ private:
 
 	void 		push(StackValue);
 	void		push(void*);
+	bool		hasResult()		const;
 	StackValue	pop();
 
 	void step();
@@ -85,11 +87,13 @@ private:
 	void op_default(unsigned char);
 	void op_addr(unsigned long long, unsigned long long);
 	void op_breg4(unsigned long long, unsigned long long);
+	void op_breg5(unsigned long long, unsigned long long);
 	void op_fb_reg(unsigned long long, unsigned long long);
 public:
+	static unsigned int evaluateLocation(const class ExecutionContext&, const DwarfScriptList&, void**, const struct FunctionEntry*);
 	static unsigned int evaluateLocation(const class ExecutionContext&, const DwarfScriptList&, void**);
-	static unsigned int evaluate(const class ExecutionContext&, const DwarfScriptList&, StackValue*);
-	static unsigned int evaluate(const class ExecutionContext&, const DwarfScript&, StackValue*);
+	static unsigned int evaluate(const class ExecutionContext&, const DwarfScriptList&, const struct FunctionEntry*, StackValue*);
+	static unsigned int evaluate(const class ExecutionContext&, const DwarfScript&, const struct FunctionEntry*, StackValue*);
 };
 
 #endif // DWARMACHINE_H

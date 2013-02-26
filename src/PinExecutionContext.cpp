@@ -19,6 +19,12 @@ PinExecutionContext::~PinExecutionContext() {
 
 unsigned int PinExecutionContext::mapRegisterToPin(enum eRegister reg, REG *pin_reg) {
 	switch (reg) {
+	case EREG_STACK_POINTER:
+		*pin_reg = REG_STACK_PTR;
+		return 0;
+	case EREG_BASE_POINTER:
+		*pin_reg = REG_EBP;
+		return 0;
 	case EREG_INST_POINTER:
 		*pin_reg = REG_INST_PTR;
 		return 0;

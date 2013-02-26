@@ -40,6 +40,22 @@ string DwarfIndexer::getDwarfName(Dwarf_Die die, Dwarf_Debug dwarf_handle, Dwarf
 	return name;
 }
 
+Dwarf_Unsigned DwarfIndexer::getDwarfUnsigned(Dwarf_Die die, Dwarf_Half attr, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
+	int		res = 0;
+	Dwarf_Attribute	dw_attr;	
+	Dwarf_Unsigned	udata;
+
+	if ((res = dwarf_attr(die, attr, &dw_attr, &dwarf_error)) == DW_DLV_OK) {
+		if ((res = dwarf_formudata(dw_attr, &udata, &dwarf_error)) == DW_DLV_OK) {
+			return udata;
+		} else {
+			return 0;
+		}
+	} else {
+		return 0;
+	}
+}
+
 Dwarf_Off DwarfIndexer::getDwarfOffset(Dwarf_Die die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
 	int		res = 0;
 	Dwarf_Off	die_off;	
@@ -88,38 +104,39 @@ unsigned int DwarfIndexer::getDwarfPC(Dwarf_Die die, Dwarf_Addr* p_lopc, Dwarf_A
 	return 0;
 }
 
-unsigned int DwarfIndexer::getDwarfScriptList(Dwarf_Die die, Dwarf_Half attr, DwarfScriptList &scriptlist, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
+unsigned int DwarfIndexer::getDwarfScriptList(Dwarf_Die die, Dwarf_Half attr, DwarfScriptList &scriptlist, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error, unsigned long long offset = 0) {
 	int		res = 0;
 	Dwarf_Attribute	dw_attr;
 	Dwarf_Signed	lcnt;
-	Dwarf_Locdesc	*llbuf;
+	Dwarf_Locdesc	**llbuf;
 	DwarfScriptList	sl;
 	
 	if ((res = dwarf_attr(die, attr, &dw_attr, &dwarf_error)) == DW_DLV_OK) {
-		if ((res = dwarf_loclist(dw_attr, &llbuf, &lcnt, &dwarf_error)) == DW_DLV_OK) {
+		if ((res = dwarf_loclist_n(dw_attr, &llbuf, &lcnt, &dwarf_error)) == DW_DLV_OK) {
+			cerr << "Loclist: " << lcnt << endl;
 			for (int i = 0; i < lcnt; i++) {
 				DwarfLocationScript dls;
 
-				dls.lowpc = llbuf[i].ld_lopc;
-				dls.hipc = llbuf[i].ld_hipc;
-				for (int j = 0; j < llbuf[i].ld_cents; j++) {
+				dls.lowpc = llbuf[i]->ld_lopc + offset;
+				dls.hipc = llbuf[i]->ld_hipc + offset;
+				for (int j = 0; j < llbuf[i]->ld_cents; j++) {
 					DwarfOperation op;
 
-					op.opcode = llbuf[i].ld_s[j].lr_atom;
-					op.operand1 = llbuf[i].ld_s[j].lr_number;
-					op.operand2 = llbuf[i].ld_s[j].lr_number2;
-					op.offset = llbuf[i].ld_s[j].lr_offset;
+					op.opcode = llbuf[i]->ld_s[j].lr_atom;
+					op.operand1 = llbuf[i]->ld_s[j].lr_number;
+					op.operand2 = llbuf[i]->ld_s[j].lr_number2;
+					op.offset = llbuf[i]->ld_s[j].lr_offset;
 
 					dls.script.push_back(op);
 				}
 
 				sl.push_back(dls);
 
-				dwarf_dealloc(dwarf_handle, llbuf[i].ld_s, DW_DLA_LOC_BLOCK);
+				dwarf_dealloc(dwarf_handle, llbuf[i]->ld_s, DW_DLA_LOC_BLOCK);
+				dwarf_dealloc(dwarf_handle, llbuf[i], DW_DLA_LOCDESC);
 			}
 
-			dwarf_dealloc(dwarf_handle, llbuf, DW_DLA_LOCDESC);
-
+			dwarf_dealloc(dwarf_handle, llbuf, DW_DLA_LIST);
 			scriptlist = sl;
 			return 0;
 		} else {
@@ -151,7 +168,7 @@ unsigned int DwarfIndexer::getChildren(Dwarf_Die parent_die, list<Dwarf_Die>& ch
 	return 0;
 }
 
-DwarfIndexer::DwarfIndexer() {
+DwarfIndexer::DwarfIndexer() : CU_lopc(0), CU_hipc(0) {
 }
 
 DwarfIndexer::~DwarfIndexer() {
@@ -206,7 +223,7 @@ unsigned int DwarfIndexer::accept(Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_er
 			
 			DwarfScript::iterator si;
 			for (si = slit->script.begin(); si != slit->script.end(); si++) {
-				cerr << "      #" << (void*) si->offset << " - " << (void*) si->opcode << " (" << si->operand1 << ", " << si->operand2 << ")" << endl;
+				cerr << "      #" << (void*) si->offset << " - " << (void*) si->opcode << " (" << (void*) si->operand1 << ", " << (void*) si->operand2 << ")" << endl;
 			}
 		}
 	}
@@ -227,6 +244,17 @@ unsigned int DwarfIndexer::accept(Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_er
 		cerr << "] " << fi->second->name << " (";
 		// print parameters
 		cerr << ")" << endl;
+
+		cerr << "   Frame Base: " << endl;
+		DwarfScriptList::iterator slit;
+		for (slit = fi->second->frame_base.begin(); slit != fi->second->frame_base.end(); slit++) {
+			cerr << "   <" << (void*) slit->lowpc << " - " << (void*) slit->hipc << ">:" << endl;
+			
+			DwarfScript::iterator si;
+			for (si = slit->script.begin(); si != slit->script.end(); si++) {
+				cerr << "      #" << (void*) si->offset << " - " << (void*) si->opcode << " (" << si->operand1 << ", " << si->operand2 << ")" << endl;
+			}
+		}
 
 		if (!fi->second->variables.empty()) {
 			cerr << "   Local Variables: " << endl;
@@ -265,6 +293,9 @@ unsigned int DwarfIndexer::accept(DwarfIndex &index, Dwarf_Die die, Dwarf_Debug 
 		return visitBaseType(index, die, dwarf_handle, dwarf_error);
 	case DW_TAG_variable:
 		return visitVariable(index, die, dwarf_handle, dwarf_error);
+	case DW_TAG_formal_parameter:
+		// might need a seperate function
+		return visitVariable(index, die, dwarf_handle, dwarf_error);
 	case DW_TAG_subprogram:
 		return visitSubProgram(index, die, dwarf_handle, dwarf_error);
 	default:
@@ -291,19 +322,31 @@ unsigned int DwarfIndexer::acceptChildren(DwarfIndex &index, Dwarf_Die die, Dwar
 }
 
 unsigned int DwarfIndexer::visitCU(DwarfIndex &index, Dwarf_Die cu_die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
+	Dwarf_Addr		lopc, hipc;
+	
+	if (getDwarfPC(cu_die, &lopc, &hipc, dwarf_error) != 0) {
+		cerr << "Warning: could not read lowpc or hipc of CU" << endl;
+		lopc = hipc = 0;
+	}
+	CU_lopc = lopc;
+	CU_hipc = hipc;
+
 	return acceptChildren(index, cu_die, dwarf_handle, dwarf_error);
 }
 
 unsigned int DwarfIndexer::visitBaseType(DwarfIndex &index, Dwarf_Die type_die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
 	string 		name;
 	Dwarf_Off	offset;
+	Dwarf_Unsigned	size;
 	TypeEntry	*te;
 
 	name = getDwarfName(type_die, dwarf_handle, dwarf_error);
 	offset = getDwarfOffset(type_die, dwarf_handle, dwarf_error);
+	size = getDwarfUnsigned(type_die, DW_AT_byte_size, dwarf_handle, dwarf_error);
 
 	te = new TypeEntry;
 	te->name = name;
+	te->size = size;
 
 	index.types[offset] = te;
 
@@ -361,6 +404,10 @@ unsigned int DwarfIndexer::visitSubProgram(DwarfIndex &index, Dwarf_Die sp_die, 
 	fe->lopc = lopc;
 	fe->hipc = hipc;
 
+	if (getDwarfScriptList(sp_die, DW_AT_frame_base, fe->frame_base, dwarf_handle, dwarf_error, CU_lopc) != 0) {
+		return 1;
+	}
+
 	DwarfIndex local_index = { index.types, fe->variables, index.functions };
 
 	if (acceptChildren(local_index, sp_die, dwarf_handle, dwarf_error) == 0) {
@@ -371,6 +418,22 @@ unsigned int DwarfIndexer::visitSubProgram(DwarfIndex &index, Dwarf_Die sp_die, 
 	}
 	
 	return 0;
+}
+
+unsigned int DwarfIndexer::getType(Dwarf_Off off, TypeEntry* te) const {
+	map<Dwarf_Off, TypeEntry*>::const_iterator tit;
+
+	if (te == 0) {
+		return 1;
+	}
+
+	tit = types.find(off);
+	if (tit == types.end()) {
+		return 2;
+	} else {
+		*te = *tit->second;
+		return 0;
+	}
 }
 
 list<VarEntry> DwarfIndexer::getVariables() const {

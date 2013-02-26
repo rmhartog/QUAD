@@ -19,6 +19,8 @@ enum eRegister
 {
 	EREG_INST_POINTER = 0,
 #ifdef TARGET_IA32
+	EREG_STACK_POINTER = 4,
+	EREG_BASE_POINTER = 5,
 	// register definitions for IA32
 #endif
 #ifdef TARGET_IA64

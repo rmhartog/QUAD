@@ -136,6 +136,7 @@ void dwarf_handler(Dwarf_Error err, Dwarf_Ptr arg) {
 Q2XMLFile *q2xml; // also used in Tracing.cpp
 BBList bblist;		//list of BBlocks
 
+char main_image_path[100];
 char main_image_name[100];
 
 map <string,ADDRINT> NametoADD;
@@ -529,8 +530,6 @@ VOID findVariable(CONTEXT* context, VOID* addr, INT32 size) {
 	const PinExecutionContext pin_context(context);
 
 	if (symbol_resolver == 0) return;
-
-	cerr << " testing " << endl;
 
 	if (symbol_resolver->resolveVariable(pin_context, addr, size, &vars) == 0) {
 		char buffer[256];
@@ -975,6 +974,7 @@ int main(int argc, char *argv[])
 				break;
 			}   
 		}
+		strcpy(main_image_path, temp);
 		strcpy(main_image_name,StripPath(temp));
 		// ----------------------------------------------------------------------------------
 		
@@ -1071,9 +1071,7 @@ int main(int argc, char *argv[])
 
 #ifdef QUAD_LIBELF
 	if(KnobElf.Value()) {
-		string elfName(main_image_name);
-		elfName = "./" + elfName;
-		cerr << "ELF filename: " << elfName << endl;
+		string elfName(main_image_path);
 		int elf_fd = open(elfName.c_str(), O_RDONLY);
 		
 		if (elf_version(EV_CURRENT) == EV_NONE) {

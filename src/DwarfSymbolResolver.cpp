@@ -107,8 +107,13 @@ unsigned int DwarfSymbolResolver::findGlobalVariable(const ExecutionContext &con
 		variables = indexer->getVariables();
 		
 		for (vit = variables.begin(); vit != variables.end(); vit++) {		
+			TypeEntry type;
+			if (indexer->getType(vit->type, &type) != 0) {
+				continue;
+			}
+
 			void* vaddr;
-			size_t vsize = 4; // TODO: set the size correctly
+			size_t vsize = type.size; 
 			if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr) == 0) {
 				if (addr >= vaddr && addr < vaddr + vsize) {
 					*ve = *vit;
@@ -124,13 +129,13 @@ unsigned int DwarfSymbolResolver::findLocalVariable(const ExecutionContext &cont
 	list<VarEntry> 			variables;
 	list<VarEntry>::iterator	vit;
 
-	cerr << "Lookup local. (" << fe.name << ")" << endl;
+	cerr << "Lookup local. (" << fe.name << ", " << addr << ")" << endl;
 
 	variables = DwarfIndexer::getVariables(fe);
 	for (vit = variables.begin(); vit != variables.end(); vit++) {		
 		void* vaddr;
 		size_t vsize = 4; // TODO: set the size correctly
-		if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr) == 0) {
+		if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr, &fe) == 0) {
 			if (addr >= vaddr && addr < vaddr + vsize) {
 				cerr << "Local: " << vit->name << endl;
 				*ve = *vit;
@@ -156,6 +161,7 @@ unsigned int DwarfSymbolResolver::resolveVariable(const ExecutionContext& contex
 	FunctionEntry	fe;
 	
 	if (findGlobalVariable(context, addr, size, &ve) == 0) {
+		return 10;
 	}
 
 	if (context.getInstructionPointer(&ip) != 0) {
@@ -164,6 +170,7 @@ unsigned int DwarfSymbolResolver::resolveVariable(const ExecutionContext& contex
 
 	if (findFunction(ip, &fe) == 0) {
 		if (findLocalVariable(context, addr, size, fe, &ve) == 0) {
+			return 10;
 		}
 	}
 
