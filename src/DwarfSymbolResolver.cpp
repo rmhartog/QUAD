@@ -10,6 +10,7 @@
  *****/
 
 #include "DwarfSymbolResolver.h"
+#include "DwarfIndexer.h"
 	
 #include <string.h>
 #include <iostream>
@@ -18,7 +19,7 @@ using namespace std;
 void internal_dwarf_handler(Dwarf_Error err, Dwarf_Ptr arg) {
 }
 
-DwarfSymbolResolver::DwarfSymbolResolver() {
+DwarfSymbolResolver::DwarfSymbolResolver() : current_function(0) {
 }
 
 DwarfSymbolResolver::~DwarfSymbolResolver() {
@@ -147,6 +148,34 @@ unsigned int DwarfSymbolResolver::findLocalVariable(const ExecutionContext &cont
 	return 1;
 }
 
+unsigned int DwarfSymbolResolver::enterFunction(void *addr) {
+	FunctionEntry	fe;
+
+	if (findFunction(addr, &fe) != 0) {
+		return 3;
+	}
+
+	cerr << "Entering function " << fe.name << endl;
+
+	return 1;
+}
+
+unsigned int DwarfSymbolResolver::leaveFunction(void *addr, void *ret_addr) {
+	FunctionEntry	fe;
+	FunctionEntry	rfe;
+
+	if (findFunction(addr, &fe) != 0) {
+		return 3;
+	}
+
+	if (findFunction(ret_addr, &rfe) != 0) {
+		return 4;
+	}
+
+	cerr << "Leaving function " << fe.name << " to " << rfe.name << endl;
+
+	return 1;
+}
 unsigned int DwarfSymbolResolver::resolveFunction(const ExecutionContext& context, void *addr, const FunctionSymbol **function) const {
 	FunctionEntry fe;	
 
@@ -170,6 +199,7 @@ unsigned int DwarfSymbolResolver::resolveVariable(const ExecutionContext& contex
 
 	if (findFunction(ip, &fe) == 0) {
 		if (findLocalVariable(context, addr, size, fe, &ve) == 0) {
+			cerr << ve.name << endl;
 			return 10;
 		}
 	}

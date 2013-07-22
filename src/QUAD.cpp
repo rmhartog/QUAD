@@ -265,279 +265,32 @@ KNOB<BOOL> KnobVerbose_ON(KNOB_MODE_WRITEONCE, "pintool",
 
 /* ===================================================================== */
 
-#ifdef QUAD_LIBDWARF
-
-Dwarf_Locdesc* get_relevant_locdesc(Dwarf_Locdesc* llbuf, Dwarf_Signed lcnt, Dwarf_Addr ip) {
-	if (lcnt >= 0) {
-		for (int i = 0; i < lcnt; i++) {
-			if (llbuf[i].ld_lopc <= ip && ip < llbuf[i].ld_hipc) {
-				return &llbuf[i];
-			}
-		}
-	}
-	return 0;
-}
-
-Dwarf_Addr get_current_location(Dwarf_Locdesc* ld, CONTEXT* context) {
-	return 0;
-}
-
-// possibly Range could be used, with some additions
-class AddressRange {
-public:
-	Dwarf_Addr 	low;
-	Dwarf_Addr	high;
-
-	AddressRange(Dwarf_Addr l, Dwarf_Addr h) : low(l), high(h) {
-	}
-
-	AddressRange(const AddressRange &ar) : low(ar.low), high(ar.high) {
-	}
-
-	bool contains(const Dwarf_Addr a) const {
-		return (low <= a && a < high);
-	}
-
-	bool operator <(const AddressRange& r) const {
-		return (low < r.low || (low == r.low && high < r.high));
-	}
-};
-
-class Variable {
-public:
-	char		name[64];
-	Dwarf_Off	die_offset;
-	
-	Variable(Dwarf_Off o) : die_offset(o) {
-		int res;
-		Dwarf_Die die;
-
-		strcpy(name, "undefined");
-		if ((res = dwarf_offdie(dwarf_handle, die_offset, &die, &dwarf_error)) == DW_DLV_OK) {
-			setName(die);
-
-			dwarf_dealloc(dwarf_handle, die, DW_DLA_DIE); 
-		}
-	}
-	
-	void setName(Dwarf_Die die) {
-		int res;
-		char* tempname;
-		if ((res = dwarf_diename(die, &tempname, &dwarf_error)) == DW_DLV_OK) {
-			strncpy(name,tempname, 64);
-
-			dwarf_dealloc(dwarf_handle, tempname, DW_DLA_STRING);
-		}
-	}
-
-	bool isLocatedAt(VOID* addr, CONTEXT* context) const {
-		int res;
-		Dwarf_Die die;
-
-		if ((res = dwarf_offdie(dwarf_handle, die_offset, &die, &dwarf_error)) == DW_DLV_OK) {
-			Dwarf_Attribute attr;
-			if ((res = dwarf_attr(die, DW_AT_location, &attr, &dwarf_error)) == DW_DLV_OK) {
-				Dwarf_Locdesc* llbuf;
-				Dwarf_Signed listlen;
-				if ((res = dwarf_loclist(attr, &llbuf, &listlen, &dwarf_error)) == DW_DLV_OK) {
-					Dwarf_Addr ip = (Dwarf_Addr) PIN_GetContextReg(context, REG_EIP);
-					Dwarf_Locdesc* ld = get_relevant_locdesc(llbuf, listlen, ip);
-					if (ld != 0) {
-						Dwarf_Addr addr = get_current_location(ld, context);
-					}
-
-					for (int i = 0; i < listlen; i++) {
-						dwarf_dealloc(dwarf_handle, llbuf[i].ld_s, DW_DLA_LOC_BLOCK);
-					}
-					dwarf_dealloc(dwarf_handle, llbuf, DW_DLA_LOCDESC);
-				}
-			}
-
-			dwarf_dealloc(dwarf_handle, die, DW_DLA_DIE); 
-		}
-
-		return false;
-	}
-	
-	bool operator <(const Variable& v) const {
-		return die_offset < v.die_offset;
-	}
-};
-
-class SubProgram {
-public:
-	char		name[64];
-	Dwarf_Off	die_offset;
-	AddressRange 	range;
-	set<Variable>	variables;
-
-	SubProgram(Dwarf_Off o, AddressRange r) : die_offset(o), range(r) {
-		int res;
-		Dwarf_Die die;
-
-		strcpy(name, "undefined");
-		if ((res = dwarf_offdie(dwarf_handle, die_offset, &die, &dwarf_error)) == DW_DLV_OK) {
-			setName(die);
-			addChildren(die);
-
-			dwarf_dealloc(dwarf_handle, die, DW_DLA_DIE); 
-		}
-	}
-
-	void setName(Dwarf_Die die) {
-		int res;
-		char* tempname;
-		if ((res = dwarf_diename(die, &tempname, &dwarf_error)) == DW_DLV_OK) {
-			strncpy(name,tempname, 64);
-
-			dwarf_dealloc(dwarf_handle, tempname, DW_DLA_STRING);
-		}
-	}
-
-	void addVariable(Dwarf_Die die) {
-		int		res;		
-		Dwarf_Off	die_offset;
-			
-		if ((res = dwarf_dieoffset(die, &die_offset, &dwarf_error)) == DW_DLV_OK) {
-			variables.insert(Variable(die_offset));
-		}
-	}
-
-	void addChildren(Dwarf_Die die) {
-		int res;
-		Dwarf_Die kid_die;
-		if ((res = dwarf_child(die, &kid_die, &dwarf_error)) == DW_DLV_OK) {
-			do {
-				Dwarf_Die next_die;
-				Dwarf_Half kid_tag;
-
-				if ((res = dwarf_tag(kid_die, &kid_tag, &dwarf_error)) == DW_DLV_OK) {
-					switch(kid_tag) {
-					case DW_TAG_formal_parameter:
-					case DW_TAG_variable:
-						addVariable(kid_die);
-						break;
-					default:
-						break;
-					}
-				}
-
-				res = dwarf_siblingof(dwarf_handle, kid_die, &next_die, &dwarf_error);
-				dwarf_dealloc(dwarf_handle, kid_die, DW_DLA_DIE);
-				kid_die = next_die;
-			} while(res == DW_DLV_OK);
-		}
-	}
-
-	bool operator <(const SubProgram& sp) const {
-		return (range < sp.range);
-	}
-};
-
-
-set<class SubProgram> subprograms;
-
-VOID findDwarfSubPrograms() {
-	if (dwarf_handle == 0) return;
-
-	int res = 0;
-	Dwarf_Unsigned 	header_length, abbrev_offset, next_cu_header;
-	Dwarf_Half	version_stamp, address_size;
-
-	if ((res = dwarf_next_cu_header(dwarf_handle, &header_length,
-					&version_stamp, &abbrev_offset,
-					&address_size, &next_cu_header, &dwarf_error)) == DW_DLV_OK) {
-		Dwarf_Die cu_die;
-
-		if ((res = dwarf_siblingof(dwarf_handle, 0, &cu_die, &dwarf_error)) == DW_DLV_OK) {
-			Dwarf_Die kid_die;
-
-			if ((res = dwarf_child(cu_die, &kid_die, &dwarf_error)) == DW_DLV_OK) {
-				do
-				{
-					Dwarf_Die next_die;
-
-					Dwarf_Half kid_tag;
-					if ((res = dwarf_tag(kid_die, &kid_tag, &dwarf_error)) == DW_DLV_OK) {
-						if (kid_tag == DW_TAG_subprogram) {
-							Dwarf_Off	die_offset;
-							Dwarf_Addr 	lowpc, highpc;						
-							
-							if ((res = dwarf_lowpc(kid_die, &lowpc, &dwarf_error)) == DW_DLV_OK) {
-								if ((res = dwarf_highpc(kid_die, &highpc, &dwarf_error)) == DW_DLV_OK) {
-									if ((res = dwarf_dieoffset(kid_die, &die_offset, &dwarf_error)) == DW_DLV_OK) {
-										AddressRange range(lowpc, highpc);
-										subprograms.insert(SubProgram(die_offset, range));
-									}
-								}
-							}
-						}	
-					}			
-
-					res = dwarf_siblingof(dwarf_handle, kid_die, &next_die, &dwarf_error);
-					dwarf_dealloc(dwarf_handle, kid_die, DW_DLA_DIE);
-					kid_die = next_die;
-				} while(res == DW_DLV_OK);
-			}
-
-			dwarf_dealloc(dwarf_handle, cu_die, DW_DLA_DIE);
-		}
-	}
-}
-
-stack<class SubProgram> dwarfCallStack;
-
-VOID updateDwarfStack(VOID* ip, CONTEXT* context) {
-	if (symbol_resolver != 0) {
-		const FunctionSymbol* func;
-		const PinExecutionContext pin_context(context);
-		if (symbol_resolver->resolveFunction(pin_context, ip, &func) == 0) {
-			cerr << "FUNCTION: ";
-			char buffer[256];
-			if (func != 0) {
-				func->getName(buffer, 256);
-				cerr << buffer <<endl;
-				delete func;
-			}
-		}
-	}
-
-	if (dwarf_handle == 0) return;
-
-	set<SubProgram>::iterator prog;
-	for (prog = subprograms.begin(); prog != subprograms.end(); prog++) {
-		if ((*prog).range.contains((Dwarf_Addr) ip)) {
-			for (unsigned int i = 0; i < dwarfCallStack.size(); i++) {
-				cerr << " ";
-			}
-			cerr << (*prog).name << endl;
-
-			dwarfCallStack.push(*prog);
-		}
-	}	
-}
-
-VOID popDwarfStack(VOID* ip) {
-	while (dwarfCallStack.size() > 0 && dwarfCallStack.top().range.contains((Dwarf_Addr) ip)) {
-		dwarfCallStack.pop();
-	}
-}
-
-#endif // QUAD_LIBDWARF
-
 VOID findVariable(CONTEXT* context, VOID* addr, INT32 size) {
-	const VariableSymbol* vars;
-	const PinExecutionContext pin_context(context);
 
-	if (symbol_resolver == 0) return;
-
-	if (symbol_resolver->resolveVariable(pin_context, addr, size, &vars) == 0) {
-		char buffer[256];
-		if (vars != 0) {
-			vars->getName(buffer, 256);
-			cerr << buffer <<endl;
-			delete vars;
+	if (symbol_resolver != 0) {
+		const VariableSymbol* vars;
+		const PinExecutionContext pin_context(context);
+		
+		if (symbol_resolver->resolveVariable(pin_context, addr, size, &vars) == 0) {
+			char buffer[256];
+			if (vars != 0) {
+				vars->getName(buffer, 256);
+				cerr << buffer <<endl;
+				delete vars;
+			}
 		}
+	}
+}
+
+VOID enterFunction(VOID* addr) {
+	if (symbol_resolver != 0) {
+		symbol_resolver->enterFunction(addr);
+	}
+}
+
+VOID leaveFunction(VOID* addr, VOID* ret_addr) {
+	if (symbol_resolver != 0) {
+		symbol_resolver->leaveFunction(addr, ret_addr);
 	}
 }
 
@@ -586,9 +339,7 @@ VOID EnterFC(CONTEXT *context, VOID *ip, char *name,bool flag)
 	}
 	#endif
 
-	#ifdef QUAD_LIBDWARF
-	updateDwarfStack(ip, context);
-	#endif
+	enterFunction(ip);
 
 	// update the current function name
 	string RName(name);
@@ -642,6 +393,8 @@ VOID EnterFC_EXTERNAL_OK(VOID* ip, char *name)
 	}
 	#endif
 
+	enterFunction(ip);
+
 	// update the current function name	 
 	string RName(name);
 	CallStack.push(RName);
@@ -664,18 +417,27 @@ INT32 Usage()
 
 /* ===================================================================== */
 
-VOID  Return(VOID *ip)
+VOID  Return(CONTEXT *context)
 {
-	string fn_name = RTN_FindNameByAddress((ADDRINT)ip);
+	VOID *ip;
+	VOID *sp;
+	ADDRINT ret_addr;
+	const PinExecutionContext pin_context(context);
 
-	if(!(CallStack.empty()) && (CallStack.top()==fn_name))
-	{  
-		CallStack.pop();
+	if (pin_context.getInstructionPointer(&ip) == 0) {
+		string fn_name = RTN_FindNameByAddress((ADDRINT)ip);
+
+		if(!(CallStack.empty()) && (CallStack.top()==fn_name))
+		{  
+			CallStack.pop();
+		}	
+
+		if (pin_context.getRegisterValue(EREG_STACK_POINTER, (unsigned long *) &sp) == 0) {
+			if (pin_context.getMemory((const char *) sp, sizeof(ADDRINT), (char *) &ret_addr) == sizeof(ADDRINT)) {
+				leaveFunction(ip, (VOID *) ret_addr);
+			}
+		}
 	}
-
-	#ifdef QUAD_LIBDWARF
-	popDwarfStack(ip);
-	#endif			
 }
 
 /* ===================================================================== */
@@ -885,7 +647,7 @@ VOID Instruction(INS ins, VOID *v)
 		//in order to update our own virtual 'Call Stack'. The mechanism to inject instrumentation code 
 		//to update the Call Stack (pop) upon leave is not implemented directly contrary to the dive 
 		//in mechanism. Could be a point for further improvement?! ...
-		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)Return, IARG_INST_PTR, IARG_END);
+		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)Return, IARG_CONTEXT, IARG_END);
 	}
 
 }
