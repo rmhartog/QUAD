@@ -282,15 +282,15 @@ VOID findVariable(CONTEXT* context, VOID* addr, INT32 size) {
 	}
 }
 
-VOID enterFunction(VOID* addr) {
+VOID enterFunction(const class ExecutionContext &context, VOID* addr) {
 	if (symbol_resolver != 0) {
-		symbol_resolver->enterFunction(addr);
+		symbol_resolver->enterFunction(context, addr);
 	}
 }
 
-VOID leaveFunction(VOID* addr, VOID* ret_addr) {
+VOID leaveFunction(const class ExecutionContext &context, VOID* addr, VOID* ret_addr) {
 	if (symbol_resolver != 0) {
-		symbol_resolver->leaveFunction(addr, ret_addr);
+		symbol_resolver->leaveFunction(context, addr, ret_addr);
 	}
 }
 
@@ -339,8 +339,6 @@ VOID EnterFC(CONTEXT *context, VOID *ip, char *name,bool flag)
 	}
 	#endif
 
-	enterFunction(ip);
-
 	// update the current function name
 	string RName(name);
 	CallStack.push(RName);
@@ -354,7 +352,7 @@ VOID EnterFC(CONTEXT *context, VOID *ip, char *name,bool flag)
 
 //============================================================================
 
-VOID EnterFC_EXTERNAL_OK(VOID* ip, char *name) 
+VOID EnterFC_EXTERNAL_OK(CONTEXT* context, VOID* ip, char *name) 
 {
 	// revise the following in case you want to exclude some unwanted functions under Windows and/or Linux
 	#ifdef WIN32
@@ -393,8 +391,6 @@ VOID EnterFC_EXTERNAL_OK(VOID* ip, char *name)
 	}
 	#endif
 
-	enterFunction(ip);
-
 	// update the current function name	 
 	string RName(name);
 	CallStack.push(RName);
@@ -417,6 +413,11 @@ INT32 Usage()
 
 /* ===================================================================== */
 
+VOID  Call(CONTEXT *context, ADDRINT target) {
+	const PinExecutionContext pin_context(context);
+	enterFunction(pin_context, (VOID*) target);
+}
+
 VOID  Return(CONTEXT *context)
 {
 	VOID *ip;
@@ -434,7 +435,7 @@ VOID  Return(CONTEXT *context)
 
 		if (pin_context.getRegisterValue(EREG_STACK_POINTER, (unsigned long *) &sp) == 0) {
 			if (pin_context.getMemory((const char *) sp, sizeof(ADDRINT), (char *) &ret_addr) == sizeof(ADDRINT)) {
-				leaveFunction(ip, (VOID *) ret_addr);
+				leaveFunction(pin_context, ip, (VOID *) ret_addr);
 			}
 		}
 	}
@@ -459,7 +460,7 @@ VOID UpdateCurrentFunctionName(RTN rtn,VOID *v)
 	}
 	else
 	{
-		RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR)EnterFC_EXTERNAL_OK, IARG_INST_PTR, IARG_PTR, s, IARG_END);    
+		RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR)EnterFC_EXTERNAL_OK, IARG_CONTEXT, IARG_INST_PTR, IARG_PTR, s, IARG_END);    
 	}
 	
 	// Insert a call at the exit point of a routine to pop the current routine from Call Stack if we have the routine on the top
@@ -468,7 +469,6 @@ VOID UpdateCurrentFunctionName(RTN rtn,VOID *v)
 }
 
 /* ===================================================================== */
-
 VOID Fini(INT32 code, VOID *v)
 {
     cerr << "\nFinished executing the instrumented application..." << endl;
@@ -641,6 +641,9 @@ VOID Instruction(INS ins, VOID *v)
 		}
 	}
 	
+	if (INS_IsProcedureCall(ins)) {
+		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)Call, IARG_CONTEXT, IARG_BRANCH_TARGET_ADDR, IARG_END);
+	}
 	if (INS_IsRet(ins))  	
 	{
 		// we are monitoring the 'ret' instructions since we need to know when we are leaving functions 

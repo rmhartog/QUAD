@@ -18,8 +18,8 @@
 class SymbolResolver
 {
 public:
-     virtual unsigned int enterFunction(void *addr)												= 0;
-     virtual unsigned int leaveFunction(void *addr, void *ret_addr)										= 0;
+     virtual unsigned int enterFunction(const class ExecutionContext &context, void *addr)												= 0;
+     virtual unsigned int leaveFunction(const class ExecutionContext &context, void *addr, void *ret_addr)										= 0;
      // this method resolves a function from an address within the target,
      // given an ExecutionContext of the target. On success, a pointer to the resolved function will be stored in *function.
      // returns zero on success, non-zero on failure.

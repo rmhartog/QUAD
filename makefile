@@ -100,7 +100,7 @@ Q2XMLSRCS = RenewalFlags.cpp Channel.cpp Q2XMLFile.cpp Exception.cpp $(TINYXMLSR
 XMLOBJS = $(Q2XMLSRCS:%.cpp=$(OBJDIR)%.o)
 
 #add the names of more CPP files here for the added functionality in QUAD
-CPPSRCS = BBlock.cpp Utility.cpp ElfSymbolResolver.cpp DwarfSymbolResolver.cpp DwarfIndexer.cpp DwarfMachine.cpp PinExecutionContext.cpp
+CPPSRCS = BBlock.cpp Utility.cpp ElfSymbolResolver.cpp DwarfSymbolResolver.cpp DwarfIndexer.cpp DwarfSymbols.cpp DwarfMachine.cpp PinExecutionContext.cpp
 CPPOBJS = $(CPPSRCS:%.cpp=$(OBJDIR)%.oo)
 CPPFLAGS = -O3 -fPIC
 CPPINCS = -I$(INCDIR)
@@ -113,7 +113,8 @@ tools: $(CPPOBJS) $(XMLOBJS) $(OBJDIR) $(TOOLS) $(TESTAPP)
 test: $(OBJDIR) $(TOOL_ROOTS:%=%.test)
 
 QUAD.test: $(TESTAPP)
-     $(MAKE) -k -C QUAD PIN_HOME=$(PIN_HOME)
+	./quad_count.sh -elf 1 -- $(TESTAPP)
+#     $(MAKE) -k -C QUAD PIN_HOME=$(PIN_HOME)
 
 $(OBJDIR)cp-pin.exe:
 	$(CXX) $(PIN_HOME)/source/tools/Tests/cp-pin.cpp $(APP_CXXFLAGS) $(CPPOBJS) $(XMLOBJS) -o $(OBJDIR)cp-pin.exe
@@ -136,5 +137,5 @@ $(TOOLS): %$(PINTOOL_SUFFIX) : %.o %.oo
 
 ## cleaning
 clean:
-	-rm -rf $(OBJDIR) *.out *.tested *.failed makefile.copy $(XMLOBJS) $(CPPOBJS) *~ $(SRCDIR)/*~ $(INCDIR)/*~  
+	-rm *.out *.tested *.failed makefile.copy $(XMLOBJS) $(CPPOBJS) *~ $(SRCDIR)/*~ $(INCDIR)/*~ $(OBJDIR)QUAD.o $(OBJDIR)QUAD.oo $(OBJDIR)QUAD.so
 

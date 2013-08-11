@@ -52,6 +52,9 @@ const size_t	UnknownSize = -1;
 
 // this class will provide type information about variables and function return types.
 class Type {
+public:
+     virtual ~Type() {}
+
      virtual unsigned int getName(char *buffer, size_t size)		const = 0;
      virtual unsigned int getStorageType(enum EncodingType *type)	const = 0;
      virtual unsigned int getSize(size_t *size)				const = 0;
@@ -59,15 +62,19 @@ class Type {
 
 class FunctionSymbol {
 public:
+     virtual ~FunctionSymbol() {}
+
      virtual unsigned int getName(char *buffer, size_t size)		const = 0;
      // virtual unsigned int getSourceLocation(...) 			const = 0;
 
-     virtual unsigned int getReturnType(const Type **type)		const = 0;
+     //virtual unsigned int getReturnType(const Type **type)		const = 0;
      //virtual unsigned int getAddress(const void **addr)			const = 0;
 };
 
 class VariableSymbol {
 public:
+     virtual ~VariableSymbol() {}
+
      virtual unsigned int getName(char *buffer, size_t size)		const = 0;
      // virtual unsigned int getSourceLocation(...) 			const = 0;
 

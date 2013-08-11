@@ -10,6 +10,7 @@
  *****/
 
 #include "DwarfSymbolResolver.h"
+#include "DwarfSymbols.h"
 #include "DwarfIndexer.h"
 	
 #include <string.h>
@@ -130,25 +131,76 @@ unsigned int DwarfSymbolResolver::findLocalVariable(const ExecutionContext &cont
 	list<VarEntry> 			variables;
 	list<VarEntry>::iterator	vit;
 
-	cerr << "Lookup local. (" << fe.name << ", " << addr << ")" << endl;
 
 	variables = DwarfIndexer::getVariables(fe);
 	for (vit = variables.begin(); vit != variables.end(); vit++) {		
+		TypeEntry type;
+		if (indexer->getType(vit->type, &type) != 0) {
+			continue;
+		}
+
 		void* vaddr;
-		size_t vsize = 4; // TODO: set the size correctly
+		size_t vsize = type.size; 
 		if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr, &fe) == 0) {
 			if (addr >= vaddr && addr < vaddr + vsize) {
-				cerr << "Local: " << vit->name << endl;
 				*ve = *vit;
 				return 0;
 			}
 		}
 	}
 
+	cerr << "Lookup local. (" << fe.name << ", " << addr << ") - FAILED" << endl;
 	return 1;
 }
 
-unsigned int DwarfSymbolResolver::enterFunction(void *addr) {
+void DwarfSymbolResolver::setCurrentFunction(const struct FunctionEntry &fe) {
+	delete current_function;
+
+	current_function = new FunctionEntry;
+	*current_function = fe;
+}
+
+const struct FunctionEntry* DwarfSymbolResolver::getCurrentFunction() const {
+	return current_function;
+}
+
+// TODO warning, this is very inefficient.
+void DwarfSymbolResolver::storeLocalVariables(const ExecutionContext &context, const struct FunctionEntry &fe) {
+	list<VarEntry> 			variables;
+	list<VarEntry>::iterator	vit;
+
+	variables = DwarfIndexer::getVariables(fe);
+	for (vit = variables.begin(); vit != variables.end(); vit++) {
+		TypeEntry type;
+		if (indexer->getType(vit->type, &type) != 0) {
+			continue;
+		}
+
+		void* vaddr;
+		size_t vsize = type.size; 
+		if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr, &fe) == 0) {
+			for (unsigned int b = 0; b < vsize; b++) {
+				void *byte_addr = (void*) &((char*) vaddr)[b];
+				cache[byte_addr].push(*vit);
+			}
+		}
+	}
+}
+
+void DwarfSymbolResolver::removeLocalVariables(const struct FunctionEntry &fe) {
+	map<void*, stack<VarEntry> >::iterator	cache_iterator;
+	
+	for (cache_iterator = cache.begin(); cache_iterator != cache.end(); cache_iterator++) {
+		if (!cache_iterator->second.empty()) {
+			VarEntry ve = cache_iterator->second.top();
+			if (ve.function_id == fe.unique_id) {
+				cache_iterator->second.pop();
+			}
+		}
+	}
+}
+
+unsigned int DwarfSymbolResolver::enterFunction(const ExecutionContext &context, void *addr) {
 	FunctionEntry	fe;
 
 	if (findFunction(addr, &fe) != 0) {
@@ -157,10 +209,16 @@ unsigned int DwarfSymbolResolver::enterFunction(void *addr) {
 
 	cerr << "Entering function " << fe.name << endl;
 
+	const struct FunctionEntry *previous_fe = getCurrentFunction();
+	if (previous_fe != 0) {
+		storeLocalVariables(context, *previous_fe);
+	}
+	setCurrentFunction(fe);
+
 	return 1;
 }
 
-unsigned int DwarfSymbolResolver::leaveFunction(void *addr, void *ret_addr) {
+unsigned int DwarfSymbolResolver::leaveFunction(const ExecutionContext &context, void *addr, void *ret_addr) {
 	FunctionEntry	fe;
 	FunctionEntry	rfe;
 
@@ -173,13 +231,19 @@ unsigned int DwarfSymbolResolver::leaveFunction(void *addr, void *ret_addr) {
 	}
 
 	cerr << "Leaving function " << fe.name << " to " << rfe.name << endl;
+	removeLocalVariables(rfe);
+	setCurrentFunction(rfe);
 
 	return 1;
 }
+
 unsigned int DwarfSymbolResolver::resolveFunction(const ExecutionContext& context, void *addr, const FunctionSymbol **function) const {
 	FunctionEntry fe;	
 
-	findFunction(addr, &fe);
+	if (findFunction(addr, &fe) == 0) {
+		*function = DwarfFunctionSymbol::fromEntry(fe);
+		return 0;
+	}
 
 	return 1;
 }
@@ -190,7 +254,8 @@ unsigned int DwarfSymbolResolver::resolveVariable(const ExecutionContext& contex
 	FunctionEntry	fe;
 	
 	if (findGlobalVariable(context, addr, size, &ve) == 0) {
-		return 10;
+		*variable = DwarfVariableSymbol::fromEntry(ve);
+		return 0;
 	}
 
 	if (context.getInstructionPointer(&ip) != 0) {
@@ -199,8 +264,18 @@ unsigned int DwarfSymbolResolver::resolveVariable(const ExecutionContext& contex
 
 	if (findFunction(ip, &fe) == 0) {
 		if (findLocalVariable(context, addr, size, fe, &ve) == 0) {
-			cerr << ve.name << endl;
-			return 10;
+			*variable = DwarfVariableSymbol::fromEntry(ve);
+			return 0;
+		}
+	}
+
+	map<void*, stack<VarEntry> >::const_iterator	cache_iterator;
+	cache_iterator = cache.find(addr);
+	if (cache_iterator != cache.end()) {
+		if (!cache_iterator->second.empty()) {
+			ve = cache_iterator->second.top();
+			*variable = DwarfVariableSymbol::fromEntry(ve);
+			return 0;
 		}
 	}
 

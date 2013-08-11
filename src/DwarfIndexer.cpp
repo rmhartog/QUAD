@@ -10,6 +10,7 @@
 
 #include <dwarf.h>
 #include <iostream>
+#include <sstream>
 using namespace std;
 
 Dwarf_Half DwarfIndexer::getDwarfTag(Dwarf_Die die, Dwarf_Error dwarf_error) {
@@ -183,6 +184,7 @@ unsigned int DwarfIndexer::accept(Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_er
 
 	cerr << "Indexing dwarf..." << endl;
 
+	current_function_id = "";
 	while ((res = dwarf_next_cu_header(dwarf_handle, &header_length,
 					&version_stamp, &abbrev_offset,
 					&address_size, &next_cu_header, &dwarf_error)) == DW_DLV_OK) {
@@ -366,6 +368,7 @@ unsigned int DwarfIndexer::visitVariable(DwarfIndex &index, Dwarf_Die variable_d
 
 	ve = new VarEntry;
 	ve->name = name;
+	ve->function_id = current_function_id;
 	ve->type = type;
 	if (getDwarfScriptList(variable_die, DW_AT_location, ve->location, dwarf_handle, dwarf_error) != 0) {
 		cerr << "Warning: variable " << ve->name << " has no location." << endl;
@@ -400,6 +403,9 @@ unsigned int DwarfIndexer::visitSubProgram(DwarfIndex &index, Dwarf_Die sp_die, 
 	fe->return_type = rettype;
 	fe->lopc = lopc;
 	fe->hipc = hipc;
+	stringstream unique_name_ss;
+	unique_name_ss << fe->name << "_" << fe->lopc;
+	unique_name_ss >> fe->unique_id;
 
 	if (getDwarfScriptList(sp_die, DW_AT_frame_base, fe->frame_base, dwarf_handle, dwarf_error, CU_lopc) != 0) {
 		cerr << "Warning: function " << fe->name << " has no frame_base." << endl;
@@ -407,14 +413,21 @@ unsigned int DwarfIndexer::visitSubProgram(DwarfIndex &index, Dwarf_Die sp_die, 
 
 	DwarfIndex local_index = { index.types, fe->variables, index.functions };
 
+	string prev_func = current_function_id;
+	current_function_id = fe->unique_id;
 	if (acceptChildren(local_index, sp_die, dwarf_handle, dwarf_error) == 0) {
 		index.functions[offset] = fe;
 	} else {
 		delete fe;
+		fe = 0;
+	}
+	current_function_id = prev_func;
+
+	if (fe != 0) {
+		return 0;
+	} else {	
 		return 1;
 	}
-	
-	return 0;
 }
 
 unsigned int DwarfIndexer::getType(Dwarf_Off off, TypeEntry* te) const {

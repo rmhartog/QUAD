@@ -23,6 +23,7 @@ struct TypeEntry {
 
 struct VarEntry {
      std::string	name;
+     std::string	function_id;
      Dwarf_Off		type;
      DwarfScriptList	location;
 };
@@ -35,6 +36,7 @@ struct DwarfIndex {
 
 struct FunctionEntry {
      std::string 				name;
+     std::string				unique_id;
      Dwarf_Off					return_type;
      Dwarf_Addr					lopc;
      Dwarf_Addr					hipc;
@@ -50,6 +52,7 @@ private:
      std::map<Dwarf_Off, struct VarEntry*>	global_variables;
      std::map<Dwarf_Off, struct FunctionEntry*>	functions;
      Dwarf_Addr					CU_lopc, CU_hipc;
+     std::string				current_function_id;
 
      static Dwarf_Half		getDwarfTag(Dwarf_Die, Dwarf_Error);
      static std::string		getDwarfName(Dwarf_Die, Dwarf_Debug, Dwarf_Error);
