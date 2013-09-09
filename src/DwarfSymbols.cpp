@@ -38,6 +38,14 @@ DwarfVariableSymbol::DwarfVariableSymbol(const VarEntry &ve) : entry(ve) {
 DwarfVariableSymbol::~DwarfVariableSymbol() {
 }
 
+VariableSymbol *DwarfVariableSymbol::clone() {
+	return fromEntry(entry);
+}
+
+const VariableSymbol *DwarfVariableSymbol::clone() const {
+	return fromEntry(entry);
+}
+
 DwarfVariableSymbol *DwarfVariableSymbol::fromEntry(const VarEntry &ve) {
 	return new DwarfVariableSymbol(ve);
 }

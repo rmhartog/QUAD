@@ -47,6 +47,9 @@ public:
 		ElfVariableSymbol(const char *name, void* addr, size_t size);
      virtual	~ElfVariableSymbol();
 
+     virtual VariableSymbol *clone();
+     virtual const VariableSymbol *clone()			const;
+
      unsigned int getAddressRange(void **low, void **high)	const;
 
      virtual unsigned int getName(char *buffer, size_t size)	const;

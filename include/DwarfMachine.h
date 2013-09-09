@@ -10,6 +10,7 @@
 #define DWARFMACHINE_H
 
 #include "dwarf.h"
+#include "ExecutionContext.h"
 #include <cstddef>
 #include <list>
 #include <stack>
@@ -41,7 +42,8 @@ enum eMachineState
 enum eTypeEncoding {
 	TE_Signed,
 	TE_Unsigned,
-	TE_Address
+	TE_Address,
+	TE_Register
 };
 
 struct StackType
@@ -55,8 +57,11 @@ struct StackValue
 	StackType		type;
 	union
 	{
-		void*		address;
-		char		_placeholder[16];
+		signed long long	signedNumber;
+		unsigned long long	unsignedNumber;
+		void*			address;
+		enum eRegister		registerNumber;
+		char			_placeholder[16];
 	};
 };
 
@@ -77,7 +82,10 @@ private:
 	void gotoState(enum eMachineState);
 
 	void 		push(StackValue);
+	void		push(signed long long);
+	void		push(unsigned long long);
 	void		push(void*);
+	void		push(enum eRegister);
 	bool		hasResult()		const;
 	StackValue	pop();
 
@@ -85,13 +93,20 @@ private:
 	void op(unsigned char, unsigned long long, unsigned long long);
 
 	void op_default(unsigned char);
+	void op_litn(unsigned long long, unsigned long long, unsigned long long);
 	void op_addr(unsigned long long, unsigned long long);
-	void op_breg4(unsigned long long, unsigned long long);
-	void op_breg5(unsigned long long, unsigned long long);
+	void op_regn(unsigned long long, unsigned long long, unsigned long long);
+	void op_bregn(unsigned long long, unsigned long long, unsigned long long);
 	void op_fb_reg(unsigned long long, unsigned long long);
+
+	void op_dup();
+	void op_drop();
+	void op_deref();
+
+	void op_plus();
 public:
-	static unsigned int evaluateLocation(const class ExecutionContext&, const DwarfScriptList&, void**, const struct FunctionEntry*);
-	static unsigned int evaluateLocation(const class ExecutionContext&, const DwarfScriptList&, void**);
+	static unsigned int evaluateLocation(const class ExecutionContext&, const DwarfScriptList&, void**, enum eRegister*, const struct FunctionEntry*);
+	static unsigned int evaluateLocation(const class ExecutionContext&, const DwarfScriptList&, void**, enum eRegister*);
 	static unsigned int evaluate(const class ExecutionContext&, const DwarfScriptList&, const struct FunctionEntry*, StackValue*);
 	static unsigned int evaluate(const class ExecutionContext&, const DwarfScript&, const struct FunctionEntry*, StackValue*);
 };

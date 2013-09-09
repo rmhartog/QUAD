@@ -241,6 +241,9 @@ KNOB<string> KnobApplication(KNOB_MODE_WRITEONCE, "pintool",
 KNOB<BOOL> KnobElf(KNOB_MODE_WRITEONCE, "pintool", 
 	"elf","0", "Set to 1 to enable variable names from elf file (this works only if libelf support is compiled in QUAD).");
 
+KNOB<unsigned int> KnobVariableCount(KNOB_MODE_WRITEONCE, "pintool", 
+	"varcnt", "5", "The maximum number of variable names to be displayed in the dot graph.");
+
 KNOB<string> KnobMonitorList(KNOB_MODE_WRITEONCE, "pintool", 
 	"use_monitor_list","", "Create output report files only for certain function(s) in the application and filter out the rest (the functions are listed in a text file whose name follows)");
 
@@ -265,21 +268,15 @@ KNOB<BOOL> KnobVerbose_ON(KNOB_MODE_WRITEONCE, "pintool",
 
 /* ===================================================================== */
 
-VOID findVariable(CONTEXT* context, VOID* addr, INT32 size) {
-
+const VariableSymbol* findVariable(CONTEXT* context, VOID* addr, INT32 size) {
+	const VariableSymbol* vars = 0;
 	if (symbol_resolver != 0) {
-		const VariableSymbol* vars;
 		const PinExecutionContext pin_context(context);
 		
 		if (symbol_resolver->resolveVariable(pin_context, addr, size, &vars) == 0) {
-			char buffer[256];
-			if (vars != 0) {
-				vars->getName(buffer, 256);
-				cerr << buffer <<endl;
-				delete vars;
-			}
 		}
 	}
+	return vars;
 }
 
 VOID enterFunction(const class ExecutionContext &context, VOID* addr) {
@@ -510,8 +507,6 @@ static VOID RecordMem(CONTEXT * context, CHAR r, VOID * addr, INT32 size, BOOL i
 			if (addr >= esp) return;  // if we are reading from the stack range, ignore this access
 		}
 
-		findVariable(context, addr, size);
-
 		string ftnName=CallStack.top(); //top of the stack is the currently open function
 		
 		if(BBMODE)
@@ -541,11 +536,14 @@ static VOID RecordMem(CONTEXT * context, CHAR r, VOID * addr, INT32 size, BOOL i
 			ADDtoName[GlobalfunctionNo]=ftnName;   // create the Number -> String binding
 		} 
 
+		const VariableSymbol* vars = findVariable(context, addr, size);
+
 		for(int i=0;i<size;i++)
-		{
-			RecordMemoryAccess((ADDRINT)addr,NametoADD[ftnName],r=='W');
+		{	
+			RecordMemoryAccess((ADDRINT)addr,NametoADD[ftnName], vars, r=='W');
 			addr=((char *)addr)+1;  // cast not needed anyway!
-		}//end for
+		} //end for
+
 	}// end of not a prefetch
 }
 

@@ -17,10 +17,23 @@
 
 enum eRegister
 {
-	EREG_INST_POINTER = 0,
-#ifdef TARGET_IA32
+#ifdef TARGET_IA32	
+	EREG_EAX = 0,
+	EREG_ECX = 1,
+	EREG_EDX = 2,
+	EREG_EBX = 3,
 	EREG_STACK_POINTER = 4,
 	EREG_BASE_POINTER = 5,
+	EREG_ESI = 6,
+	EREG_EDI = 7,
+	EREG_INST_POINTER = 8,
+	EREG_EFLAGS = 9,
+	EREG_CS = 10,
+	EREG_SS = 11,
+	EREG_DS = 12,
+	EREG_ES = 13,
+	EREG_FS = 14,
+	EREG_GS = 15,
 	// register definitions for IA32
 #endif
 #ifdef TARGET_IA64

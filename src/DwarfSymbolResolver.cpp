@@ -42,6 +42,50 @@ void DwarfSymbolResolver::createIndexer() {
 	indexer->accept(*getDwarfHandle(), *getDwarfError());
 }
 
+map<unsigned long long, list<VarEntry> > DwarfSymbolResolver::createRelevanceMap(const FunctionEntry &fe) {
+	list<VarEntry>				variables;
+	list<VarEntry>::iterator		vit;
+
+	cerr << "Rel for " << fe.name << endl;
+
+	map<unsigned long long, list<VarEntry> >	relevantVariables;
+	if (indexer != 0) {
+		variables = indexer->getVariables(fe);
+
+		for (vit = variables.begin(); vit != variables.end(); vit++) {
+			cerr << "   " << vit->name << endl;
+
+			DwarfScriptList::iterator slit;
+
+			for (slit = vit->location.begin(); slit != vit->location.end(); slit++) {
+				cerr << "      " << slit->lowpc << " - " << slit->hipc << endl;
+				if (slit->lowpc == 0 && (slit->hipc == 0 || slit->hipc == (unsigned long long) -1)) {
+					relevantVariables[(unsigned long long) -1].push_back(*vit);
+				} else {
+					for (unsigned long long addr = slit->lowpc; addr < slit->hipc; addr++) {
+						cerr << "         " << addr << endl;
+						relevantVariables[addr].push_back(*vit);
+					}
+				}
+			}
+		}
+	}
+	return relevantVariables;
+}
+
+void DwarfSymbolResolver::createRelevanceMaps() {
+	list<FunctionEntry>		functions;
+	list<FunctionEntry>::iterator	fit;
+
+	if (indexer != 0) {
+		functions = indexer->getFunctions();
+
+		for (fit = functions.begin(); fit != functions.end(); fit++) {
+			relevance[fit->unique_id] = createRelevanceMap(*fit);
+		}
+	}
+}
+
 unsigned int DwarfSymbolResolver::createDwarfSymbolResolver(Elf *elf_handle, DwarfSymbolResolver **resolver) {
 	DwarfSymbolResolver *dwarf_resolver = new DwarfSymbolResolver();
 	if (dwarf_resolver == 0) {
@@ -59,6 +103,7 @@ unsigned int DwarfSymbolResolver::createDwarfSymbolResolver(Elf *elf_handle, Dwa
 	}
 
 	dwarf_resolver->createIndexer();
+	dwarf_resolver->createRelevanceMaps();
      
 	*resolver = dwarf_resolver;
 	return 0;
@@ -78,6 +123,34 @@ unsigned int DwarfSymbolResolver::destroyDwarfSymbolResolver(DwarfSymbolResolver
 	delete *resolver;
 	*resolver = 0;
 	return 0;
+}
+
+const class FunctionSymbol *DwarfSymbolResolver::toSymbol(const struct FunctionEntry &fe) const {
+	std::map<std::string, FunctionSymbol*>::iterator fit;
+	FunctionSymbol *symbol = 0;
+	
+	fit = functionSymbols.find(fe.unique_id);
+	if (fit == functionSymbols.end()) {
+		symbol = DwarfFunctionSymbol::fromEntry(fe);
+		functionSymbols[fe.unique_id] = symbol;
+	} else {
+		symbol = fit->second;
+	}
+	return symbol;
+}
+
+const class VariableSymbol *DwarfSymbolResolver::toSymbol(const struct VarEntry &ve) const {
+	std::map<std::string, VariableSymbol*>::iterator vit;
+	VariableSymbol *symbol = 0;
+	
+	vit = variableSymbols.find(ve.name + "_" + ve.function_id);
+	if (vit == variableSymbols.end()) {
+		symbol = DwarfVariableSymbol::fromEntry(ve);
+		variableSymbols[ve.name + "_" + ve.function_id] = symbol;
+	} else {
+		symbol = vit->second;
+	}
+	return symbol;
 }
 
 #include <iostream>
@@ -109,14 +182,10 @@ unsigned int DwarfSymbolResolver::findGlobalVariable(const ExecutionContext &con
 		variables = indexer->getVariables();
 		
 		for (vit = variables.begin(); vit != variables.end(); vit++) {		
-			TypeEntry type;
-			if (indexer->getType(vit->type, &type) != 0) {
-				continue;
-			}
-
+			TypeEntry type = vit->type;
 			void* vaddr;
 			size_t vsize = type.size; 
-			if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr) == 0) {
+			if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr, 0) == 0) {
 				if (addr >= vaddr && addr < vaddr + vsize) {
 					*ve = *vit;
 					return 0;
@@ -128,24 +197,47 @@ unsigned int DwarfSymbolResolver::findGlobalVariable(const ExecutionContext &con
 }
 
 unsigned int DwarfSymbolResolver::findLocalVariable(const ExecutionContext &context, void *addr, size_t size, const struct FunctionEntry &fe, struct VarEntry *ve) const {
+	void*				ip;	
 	list<VarEntry> 			variables;
 	list<VarEntry>::iterator	vit;
 
+	if (context.getInstructionPointer(&ip) != 0) {
+		return 2;
+	}
 
-	variables = DwarfIndexer::getVariables(fe);
+	map<string, map<unsigned long long, list<VarEntry> > >::const_iterator rel_it;
+	rel_it = relevance.find(fe.unique_id);
+	if (rel_it == relevance.end()) {
+		cerr << "No relevance map for " << fe.name << endl;
+		return 3;
+	}
+
+	map<unsigned long long, list<VarEntry> >::const_iterator lrel_it, lrel_it_all;
+	lrel_it = rel_it->second.find((unsigned long long) ip);
+	lrel_it_all = rel_it->second.find((unsigned long long) -1);
+
+	if (lrel_it != rel_it->second.end()) {
+		variables.insert(variables.begin(), lrel_it->second.begin(), lrel_it->second.end());
+	}
+	if (lrel_it_all != rel_it->second.end()) {
+		variables.insert(variables.begin(), lrel_it_all->second.begin(), lrel_it_all->second.end());
+	}
+	//variables = DwarfIndexer::getVariables(fe);
 	for (vit = variables.begin(); vit != variables.end(); vit++) {		
-		TypeEntry type;
-		if (indexer->getType(vit->type, &type) != 0) {
-			continue;
-		}
-
 		void* vaddr;
-		size_t vsize = type.size; 
-		if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr, &fe) == 0) {
+		unsigned int result = DwarfMachine::evaluateLocation(context, vit->location, &vaddr, 0, &fe);
+		// variable is in memory
+		if (result == 0) {
+			TypeEntry type = vit->type;
+			size_t vsize = type.size;
 			if (addr >= vaddr && addr < vaddr + vsize) {
 				*ve = *vit;
 				return 0;
 			}
+		}
+		// if variable is not in memory and not in a register, it is an error.
+		else if (result != 1) {
+			cerr << "Evaluate failed for " << vit->name << " in " << fe.name << endl; 
 		}
 	}
 
@@ -171,14 +263,11 @@ void DwarfSymbolResolver::storeLocalVariables(const ExecutionContext &context, c
 
 	variables = DwarfIndexer::getVariables(fe);
 	for (vit = variables.begin(); vit != variables.end(); vit++) {
-		TypeEntry type;
-		if (indexer->getType(vit->type, &type) != 0) {
-			continue;
-		}
+		TypeEntry type = vit->type;
 
 		void* vaddr;
 		size_t vsize = type.size; 
-		if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr, &fe) == 0) {
+		if (DwarfMachine::evaluateLocation(context, vit->location, &vaddr, 0, &fe) == 0) {
 			for (unsigned int b = 0; b < vsize; b++) {
 				void *byte_addr = (void*) &((char*) vaddr)[b];
 				cache[byte_addr].push(*vit);
@@ -241,7 +330,7 @@ unsigned int DwarfSymbolResolver::resolveFunction(const ExecutionContext& contex
 	FunctionEntry fe;	
 
 	if (findFunction(addr, &fe) == 0) {
-		*function = DwarfFunctionSymbol::fromEntry(fe);
+		*function = toSymbol(fe);
 		return 0;
 	}
 
@@ -252,9 +341,9 @@ unsigned int DwarfSymbolResolver::resolveVariable(const ExecutionContext& contex
 	void 		*ip;
 	VarEntry 	ve;
 	FunctionEntry	fe;
-	
+
 	if (findGlobalVariable(context, addr, size, &ve) == 0) {
-		*variable = DwarfVariableSymbol::fromEntry(ve);
+		*variable = toSymbol(ve);
 		return 0;
 	}
 
@@ -264,17 +353,18 @@ unsigned int DwarfSymbolResolver::resolveVariable(const ExecutionContext& contex
 
 	if (findFunction(ip, &fe) == 0) {
 		if (findLocalVariable(context, addr, size, fe, &ve) == 0) {
-			*variable = DwarfVariableSymbol::fromEntry(ve);
+			*variable = toSymbol(ve);
 			return 0;
 		}
 	}
-
+	
 	map<void*, stack<VarEntry> >::const_iterator	cache_iterator;
+
 	cache_iterator = cache.find(addr);
 	if (cache_iterator != cache.end()) {
 		if (!cache_iterator->second.empty()) {
 			ve = cache_iterator->second.top();
-			*variable = DwarfVariableSymbol::fromEntry(ve);
+			*variable = toSymbol(ve);
 			return 0;
 		}
 	}

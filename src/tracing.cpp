@@ -68,7 +68,7 @@ THE POSSIBILITY OF SUCH DAMAGE.
 #include "Q2XMLFile.h"
 #include "Channel.h"
 #include "RenewalFlags.h"
-
+#include <list>
 
 #define max(a,b) ((a)>(b)?(a):(b))
 #define min(a,b) ((a)<(b)?(a):(b))
@@ -78,12 +78,37 @@ FILE* gfp,*ufa;
 
 addr_t MaxLabel=0;
 
+// structure definition to keep track of producer->consumer Bindings! (number of bytes, the memory addresses used for exchange ...)
+typedef struct 
+{
+	unsigned long long data_exchange;
+	unsigned long long UniqueValues;
+	ADDRINT producer;
+	ADDRINT consumer;
+	set<ADDRINT>* UniqueMemCells;
+	map<string, unsigned long long>* variable_exchange;
+} 
+Binding;
+
+bool paircmp (pair<string, unsigned long long> lhs, pair<string, unsigned long long> rhs) {
+	return lhs.second > rhs.second;
+}
+
 struct trieNode 
 {
-    struct trieNode * list[16];
- 	FNodeList * RenewalFlags;
+    union {
+        struct trieNode * list[16];
+        struct trieLeaf * leafs[16];
+	Binding * bindings[16];
+    };
+    FNodeList * RenewalFlags;
 } 
 *trieRoot=NULL,*graphRoot=NULL,*uflist=NULL;
+struct trieLeaf
+{
+    ADDRINT lastWrite;
+    const class VariableSymbol *writtenSymbol;
+};
 
 struct AddressSplitter
 {
@@ -96,17 +121,6 @@ struct AddressSplitter
     unsigned int h6:4;
     unsigned int h7:4;
 };
-
-// structure definition to keep track of producer->consumer Bindings! (number of bytes, the memory addresses used for exchange ...)
-typedef struct 
-{
-	unsigned long long data_exchange;
-	unsigned long long UniqueValues;
-	ADDRINT producer;
-	ADDRINT consumer;
-	set<ADDRINT>* UniqueMemCells;
-} 
-Binding;
 
 //------------------------------------------------------------------------------------------
 
@@ -313,7 +327,7 @@ void recTrieTraverse(struct trieNode* current,int level)
 		bool producer_in_ML=false,consumer_in_ML=false;
 		for (i=0; i<16; i++)
 		{
-		   temp=(Binding*)(current->list[i]);
+		   temp= current->bindings[i];
 		   if (temp) 
 		   {
 				string prodName,consName;
@@ -358,7 +372,7 @@ void recTrieTraverse(struct trieNode* current,int level)
 				  FunctionToCount[NameToFunction[consName]]>0) 
 				{
 					unmaPerCall = ((float)unma/FunctionToCount[NameToFunction[consName]]);
-				};
+				}
 				
 				fprintf(gfp,"\"%08x\" -> \"%08x\"  [label=",(unsigned int)temp->producer,(unsigned int)temp->consumer);
 				if(KnobDotShowBytes.Value()==TRUE) 
@@ -376,7 +390,19 @@ void recTrieTraverse(struct trieNode* current,int level)
 				{
 					fprintf(gfp,"%llu UnDVs\\n",temp->UniqueValues);
 				}
-				
+
+				if (KnobElf.Value()) {
+					std::list<pair<string, unsigned long long> >::iterator varit;
+					std::list<pair<string, unsigned long long> > variables(temp->variable_exchange->begin(), temp->variable_exchange->end());
+					variables.sort(&paircmp);
+					unsigned int varcnt = 0;
+					for (varit = variables.begin(); varcnt < KnobVariableCount.Value() && varit != variables.end(); varcnt++, varit++) {
+						fprintf(gfp,"%s (%llu)\\n", varit->first.c_str(), varit->second);
+					}
+					if (varit != variables.end()) {
+						fprintf(gfp, "and other...\\n");
+					}
+				}
 				
 				//Put_Binding_in_XML_file(prodName,consName,temp->data_exchange,temp->UniqueMemCells->size());
 // 				q2xml->insertChannel(new Channel(prodName,consName,temp->UniqueMemCells->size(),temp->data_exchange,temp->UniqueValues));
@@ -486,7 +512,7 @@ int CreateDSGraphFile()
 }
 
 //------------------------------------------------------------------------------------------
-int RecordCommunicationInDSGraph(ADDRINT producer, ADDRINT consumer, ADDRINT locAddr, struct trieNode * currentLPold)
+int RecordCommunicationInDSGraph(ADDRINT producer, ADDRINT consumer, ADDRINT locAddr, const class VariableSymbol *writtenSymbol, const class VariableSymbol *readSymbol, struct trieNode * currentLPold)
 {
 	int currentLevel=0;
 	Binding* tempptr;
@@ -542,31 +568,55 @@ int RecordCommunicationInDSGraph(ADDRINT producer, ADDRINT consumer, ADDRINT loc
 	}            
 
 	/* create new bucket to store number of accesses between the two functions*/
-	if( currentLP->list[addressArray[currentLevel]] == NULL ) 
+	if( currentLP->bindings[addressArray[currentLevel]] == NULL ) 
 	{
-		if(!(  currentLP->list[addressArray[currentLevel]] = (trieNode *)malloc(sizeof(Binding)) ) ) 
+		if(!(  currentLP->bindings[addressArray[currentLevel]] = (Binding *) malloc(sizeof(Binding)) ) ) 
 			return 1; /* memory allocation failed*/
 		else 
 		{
-			tempptr=(Binding*) ( currentLP->list[addressArray[currentLevel]] );
+			tempptr= currentLP->bindings[addressArray[currentLevel]];
 			tempptr->data_exchange=0;  /* set number of times to zero */
 			tempptr->UniqueValues=0;
 			tempptr->producer=producer;
 			tempptr->consumer=consumer;
 			tempptr->UniqueMemCells=new set<ADDRINT>;
-			if (!tempptr->UniqueMemCells) 
+			tempptr->variable_exchange = new map<string, unsigned long long>;
+			if (!tempptr->UniqueMemCells || !tempptr->variable_exchange) 
 				return 1; /* memory allocation failed*/
 		}	
 	}
 
-	tempptr=(Binding*) ( currentLP->list[addressArray[currentLevel]] );
+	tempptr= currentLP->bindings[addressArray[currentLevel]];
 	tempptr->data_exchange=tempptr->data_exchange+1;
 	
+	string key = "unknown";
+	const VariableSymbol *varsymbol = 0;
+	if (/*writtenSymbol == 0 &&*/ readSymbol != 0) {
+		varsymbol = readSymbol;
+	} else if (writtenSymbol != 0) {
+		varsymbol = writtenSymbol;
+	}
+
+	if (varsymbol != 0) {
+		char varname[256];
+		varsymbol->getName(varname, 256);
+		key = varname;
+	}
+
+	map<string, unsigned long long>::iterator iterator = tempptr->variable_exchange->find(key);
+
 	//make the status of this location as OLD by ClearFlag() for this consumer. 
 	//A true will be returned if this value is fresh and now it will be set to old
 	//A false will be returned if this value is already old (read) and is being re-read
- 	if(currentLPold->RenewalFlags->ClearFlag(consumer))
+ 	if(currentLPold->RenewalFlags->ClearFlag(consumer)) {
+		if (iterator == tempptr->variable_exchange->end()) {
+			(*tempptr->variable_exchange)[key] = 1;
+		} else {
+			iterator->second++;
+		}
+
  		tempptr->UniqueValues = tempptr->UniqueValues + 1;
+	}
 
 	// only needed for graph visualization coloring!
 	if (tempptr->data_exchange > MaxLabel) 
@@ -578,7 +628,7 @@ int RecordCommunicationInDSGraph(ADDRINT producer, ADDRINT consumer, ADDRINT loc
 	return 0; /* successful recording */
 }
 //------------------------------------------------------------------------------------------
-int RecordMemoryAccess(ADDRINT locAddr, ADDRINT func,bool writeFlag)
+int RecordMemoryAccess(ADDRINT locAddr, ADDRINT func, const class VariableSymbol *symbol, bool writeFlag)
 {
 	int currentLevel=0;
 	int i,retv;
@@ -622,17 +672,19 @@ int RecordMemoryAccess(ADDRINT locAddr, ADDRINT func,bool writeFlag)
 
 	if(!currentLP->list[addressArray[currentLevel]]) /* create new bucket to store last function's access to this memory location */
 	{
-		if(!(currentLP->list[addressArray[currentLevel]]=(struct trieNode*)malloc(sizeof(struct trieNode)) ) ) //ADDRINT
+		if(!(currentLP->leafs[addressArray[currentLevel]]=(struct trieLeaf*) malloc(sizeof(struct trieLeaf)) ) ) //ADDRINT
 			return 1; /* memory allocation failed*/
 		else 
 		{
-			*((ADDRINT*) (currentLP->list[addressArray[currentLevel]]) )=0; /* no write access has been recorded yet!!! */
+			currentLP->leafs[addressArray[currentLevel]]->lastWrite = 0; /* no write access has been recorded yet!!! */
+			currentLP->leafs[addressArray[currentLevel]]->writtenSymbol = 0; /* no write access has been recorded yet!!! */
  			currentLP->RenewalFlags = new FNodeList(); //RenewalFlags for Unique value computations
 		}
 	}           
 	if (writeFlag)
 	{
-		*((ADDRINT*) (currentLP->list[addressArray[currentLevel]])  )=func;  /* only record the last function's write to a memory location?!! */
+		currentLP->leafs[addressArray[currentLevel]]->lastWrite = func;  /* only record the last function's write to a memory location?!! */
+		currentLP->leafs[addressArray[currentLevel]]->writtenSymbol = symbol;
 		
 		//As this lovation is just written so ReNew the flags for this lovation for all the existing consumers of this location
  		currentLP->RenewalFlags->SetFlags();
@@ -640,7 +692,7 @@ int RecordMemoryAccess(ADDRINT locAddr, ADDRINT func,bool writeFlag)
 	else 
 	{
 		/* producer , consumer , address used for making this binding! , location in the tree */
-		retv=RecordCommunicationInDSGraph(*((ADDRINT*) (currentLP->list[addressArray[currentLevel]]) ), func, locAddr, currentLP); 
+		retv=RecordCommunicationInDSGraph(currentLP->leafs[addressArray[currentLevel]]->lastWrite, func, locAddr, currentLP->leafs[addressArray[currentLevel]]->writtenSymbol, symbol, currentLP); 
 		//DS = Data Structure Graph
 		if (retv) return 1; /* memory exhausted */
 	}

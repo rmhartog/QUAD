@@ -52,11 +52,14 @@ class DwarfVariableSymbol : public VariableSymbol
 private:
      VarEntry	entry;
      
-     DwarfVariableSymbol(const VarEntry &fe);
+     DwarfVariableSymbol(const VarEntry &ve);
 public:
      ~DwarfVariableSymbol();
 
-     static DwarfVariableSymbol *fromEntry(const VarEntry &fe);
+     virtual VariableSymbol* clone();
+     virtual const VariableSymbol *clone()				const;
+
+     static DwarfVariableSymbol *fromEntry(const VarEntry &ve);
 
      virtual unsigned int getName(char *buffer, size_t size)		const;
 };

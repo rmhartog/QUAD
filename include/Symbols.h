@@ -75,6 +75,9 @@ class VariableSymbol {
 public:
      virtual ~VariableSymbol() {}
 
+     virtual VariableSymbol* clone()					= 0;
+     virtual const VariableSymbol *clone()				const = 0;
+
      virtual unsigned int getName(char *buffer, size_t size)		const = 0;
      // virtual unsigned int getSourceLocation(...) 			const = 0;
 

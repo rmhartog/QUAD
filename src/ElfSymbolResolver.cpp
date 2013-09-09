@@ -80,6 +80,14 @@ ElfVariableSymbol::ElfVariableSymbol(const char *name, void *addr, size_t size) 
 ElfVariableSymbol::~ElfVariableSymbol() {
 }
 
+VariableSymbol *ElfVariableSymbol::clone() {
+	return new ElfVariableSymbol(*this);
+}
+
+const VariableSymbol *ElfVariableSymbol::clone() const {
+	return new ElfVariableSymbol(*this);
+}
+
 unsigned int ElfVariableSymbol::getAddressRange(void **low, void **high) const {
 	if (low != NULL) {
 		*low = symbol_address;

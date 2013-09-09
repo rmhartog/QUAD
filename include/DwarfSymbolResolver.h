@@ -16,7 +16,9 @@
 #include "SymbolResolver.h"
 
 #include <map>
+#include <string>
 #include <stack>
+#include <list>
 
 class DwarfSymbolResolver : public SymbolResolver
 {
@@ -27,19 +29,25 @@ private:
      struct FunctionEntry*				current_function;
      std::map<void*, std::stack<struct VarEntry> >	cache;
 
+     mutable std::map<std::string, class FunctionSymbol*>	functionSymbols;
+     mutable std::map<std::string, class VariableSymbol*>	variableSymbols;
+     std::map<std::string, std::map<unsigned long long, std::list<VarEntry> > >	relevance;
+
      DwarfSymbolResolver();
      ~DwarfSymbolResolver();
 
      Dwarf_Debug*	getDwarfHandle();
      Dwarf_Error*	getDwarfError();
      void		createIndexer();
+     std::map<unsigned long long, std::list<VarEntry> >	createRelevanceMap(const struct FunctionEntry &);
+     void		createRelevanceMaps();
 public:
      static unsigned int createDwarfSymbolResolver(Elf *, DwarfSymbolResolver **);
      static unsigned int destroyDwarfSymbolResolver(DwarfSymbolResolver **);
 
 private:
-     static class FunctionSymbol *toSymbol(const struct FunctionEntry *fe);
-     static class VariableSymbol *toSymbol(const struct VariableEntry *ve);
+     const class FunctionSymbol *toSymbol(const struct FunctionEntry &fe) const;
+     const class VariableSymbol *toSymbol(const struct VarEntry &ve) const;
 
      unsigned int findFunction(void *addr, struct FunctionEntry *fe)													const;
      unsigned int findGlobalVariable(const class ExecutionContext &context, void *addr, size_t size, struct VarEntry *ve)						const; 

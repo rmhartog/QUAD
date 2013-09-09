@@ -117,8 +117,13 @@ unsigned int DwarfIndexer::getDwarfScriptList(Dwarf_Die die, Dwarf_Half attr, Dw
 			for (int i = 0; i < lcnt; i++) {
 				DwarfLocationScript dls;
 
-				dls.lowpc = llbuf[i]->ld_lopc + offset;
-				dls.hipc = llbuf[i]->ld_hipc + offset;
+				if (llbuf[i]->ld_lopc == 0 && llbuf[i]->ld_hipc == (Dwarf_Unsigned) (-1LL)) {
+					dls.lowpc = 0;
+					dls.hipc = (Dwarf_Unsigned) (-1LL);
+				} else {
+					dls.lowpc = llbuf[i]->ld_lopc + offset;
+					dls.hipc = llbuf[i]->ld_hipc + offset;
+				}
 				for (int j = 0; j < llbuf[i]->ld_cents; j++) {
 					DwarfOperation op;
 
@@ -168,7 +173,74 @@ unsigned int DwarfIndexer::getChildren(Dwarf_Die parent_die, list<Dwarf_Die>& ch
 	return 0;
 }
 
-DwarfIndexer::DwarfIndexer() : CU_lopc(0), CU_hipc(0) {
+void DwarfIndexer::fixIndirectType(struct TypeEntry &te) {
+	if (te.basetype_off != 0 && te.basetype_type == 0) {
+		te.basetype_type = new TypeEntry;
+		if (getType(te.basetype_off, te.basetype_type) != 0) {
+			delete te.basetype_type;
+			te.basetype_type = 0;
+		} else {
+			fixIndirectType(*te.basetype_type);
+			if (te.type == TT_Typedef) {
+				te.size = te.basetype_type->size;
+			}
+			else if (te.type == TT_Array) {
+				te.name = te.basetype_type->name + "[]";
+			}
+			else if (te.type == TT_BoundedArray) {
+				stringstream name_ss;
+				name_ss << te.basetype_type->name << "[" << (te.upper_bound + 1) << "]";
+				name_ss >> te.name;
+				te.size = te.basetype_type->size * (te.upper_bound + 1);
+			}
+			else if (te.type == TT_Pointer) {
+				te.name = te.basetype_type->name + "*";
+			}
+			else if (te.type == TT_Const) {
+				te.name = te.basetype_type->name + " const";
+				te.size = te.basetype_type->size;
+			}
+		}
+	}
+}
+
+void DwarfIndexer::fixIndirectTypes() {
+	map<Dwarf_Off, TypeEntry*>::iterator ti;
+	for (ti = types.begin(); ti != types.end(); ti++) {
+		TypeEntry *te = ti->second;
+
+		fixIndirectType(*te);
+	}
+}
+
+void DwarfIndexer::fixIndirectVariableTypes() {
+	std::map<Dwarf_Off, VarEntry*>::iterator git;
+	std::map<Dwarf_Off, struct FunctionEntry*>::iterator fit;
+	
+	for (git = global_variables.begin(); git != global_variables.end(); git++) {
+		fixIndirectVariableType(*git->second);
+	}
+
+	for (fit = functions.begin(); fit != functions.end(); fit++) {
+		fixIndirectLocalVariableTypes(*fit->second);
+	}
+}
+
+void DwarfIndexer::fixIndirectLocalVariableTypes(const struct FunctionEntry &fe) {
+	std::map<Dwarf_Off, VarEntry*>::const_iterator vit;
+
+	for (vit = fe.variables.begin(); vit != fe.variables.end(); vit++) {
+		fixIndirectVariableType(*vit->second);
+	}	
+}
+
+void DwarfIndexer::fixIndirectVariableType(struct VarEntry &ve) {
+	if (ve.type_off != 0) {
+		getType(ve.type_off, &ve.type);
+	}
+}
+
+DwarfIndexer::DwarfIndexer() : CU_lopc(0), CU_hipc(0), current_basetype(0) {
 }
 
 DwarfIndexer::~DwarfIndexer() {
@@ -199,6 +271,9 @@ unsigned int DwarfIndexer::accept(Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_er
 		}
 	}
 
+	fixIndirectTypes();
+	fixIndirectVariableTypes();
+
 	map<Dwarf_Off, TypeEntry*>::iterator ti;
 	cerr << "Types: " << endl;
 	for (ti = types.begin(); ti != types.end(); ti++) {
@@ -208,14 +283,10 @@ unsigned int DwarfIndexer::accept(Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_er
 	map<Dwarf_Off, VarEntry*>::iterator vi;
 	cerr << "Globals: " << endl;
 	for (vi = global_variables.begin(); vi != global_variables.end(); vi++) {
-		ti = types.find(vi->second->type);
+		TypeEntry &type = vi->second->type;
 
 		cerr << " - [";
-		if (ti != types.end()) {
-			cerr << ti->second->name;
-		} else {
-			cerr << vi->second->type;
-		}
+		cerr << type.name;
 		cerr << "] " << vi->second->name << endl;
 
 		DwarfScriptList::iterator slit;
@@ -260,14 +331,10 @@ unsigned int DwarfIndexer::accept(Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_er
 		if (!fi->second->variables.empty()) {
 			cerr << "   Local Variables: " << endl;
 			for (vi = fi->second->variables.begin(); vi != fi->second->variables.end(); vi++) {
-				ti = types.find(vi->second->type);
+				TypeEntry &type = vi->second->type;
 		
 				cerr << "    - [";
-				if (ti != types.end()) {
-					cerr << ti->second->name;
-				} else {
-					cerr << vi->second->type;
-				}
+				cerr << type.name;
 				cerr << "] " << vi->second->name << endl;
 			
 				DwarfScriptList::iterator slit;
@@ -287,11 +354,22 @@ unsigned int DwarfIndexer::accept(Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_er
 }
 
 unsigned int DwarfIndexer::accept(DwarfIndex &index, Dwarf_Die die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
-	switch(getDwarfTag(die, dwarf_error)) {
+	Dwarf_Half tag;
+	switch(tag = getDwarfTag(die, dwarf_error)) {
 	case DW_TAG_compile_unit:
 		return visitCU(index, die, dwarf_handle, dwarf_error);	
 	case DW_TAG_base_type:
 		return visitBaseType(index, die, dwarf_handle, dwarf_error);
+	case DW_TAG_typedef:
+		return visitTypedefType(index, die, dwarf_handle, dwarf_error);
+	case DW_TAG_array_type:
+		return visitArrayType(index, die, dwarf_handle, dwarf_error);
+	case DW_TAG_subrange_type:
+		return visitSubrangeType(index, die, dwarf_handle, dwarf_error);
+	case DW_TAG_pointer_type:
+		return visitPointerType(index, die, dwarf_handle, dwarf_error);
+	case DW_TAG_const_type:
+		return visitConstType(index, die, dwarf_handle, dwarf_error);
 	case DW_TAG_variable:
 		return visitVariable(index, die, dwarf_handle, dwarf_error);
 	case DW_TAG_formal_parameter:
@@ -300,6 +378,7 @@ unsigned int DwarfIndexer::accept(DwarfIndex &index, Dwarf_Die die, Dwarf_Debug 
 	case DW_TAG_subprogram:
 		return visitSubProgram(index, die, dwarf_handle, dwarf_error);
 	default:
+		cerr << "Unsupported tag number " << tag << ". Has to be added." << endl;
 		return 255;
 	}
 }
@@ -346,12 +425,122 @@ unsigned int DwarfIndexer::visitBaseType(DwarfIndex &index, Dwarf_Die type_die, 
 	size = getDwarfUnsigned(type_die, DW_AT_byte_size, dwarf_handle, dwarf_error);
 
 	te = new TypeEntry;
+	te->type = TT_Base;
 	te->name = name;
 	te->size = size;
 
 	index.types[offset] = te;
 
 	cerr << name.c_str() << endl;
+
+	return 0;
+}
+
+unsigned int DwarfIndexer::visitTypedefType(DwarfIndex &index, Dwarf_Die type_die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
+	string 		name;
+	Dwarf_Off	offset;
+	Dwarf_Off	realtype;
+	TypeEntry	*te;
+
+	name = getDwarfName(type_die, dwarf_handle, dwarf_error);
+	offset = getDwarfOffset(type_die, dwarf_handle, dwarf_error);
+	realtype = getDwarfRefOffset(type_die, DW_AT_type, dwarf_handle, dwarf_error);
+
+	te = new TypeEntry;
+	te->type = TT_Typedef;
+	te->name = name;
+	te->basetype_off = realtype;
+	te->basetype_type = 0;
+	te->size = 0;
+
+	index.types[offset] = te;
+
+	return 0;
+}
+
+unsigned int DwarfIndexer::visitArrayType(DwarfIndex &index, Dwarf_Die type_die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
+	string 		name;
+	Dwarf_Off	offset;
+	Dwarf_Off	element;
+	TypeEntry	*te;
+
+	offset = getDwarfOffset(type_die, dwarf_handle, dwarf_error);
+	element = getDwarfRefOffset(type_die, DW_AT_type, dwarf_handle, dwarf_error);
+
+	te = new TypeEntry;
+	te->type = TT_Array;
+	te->name = "";
+	te->basetype_off = element;
+	te->basetype_type = 0;
+	te->size = 0;
+
+	index.types[offset] = te;
+
+	TypeEntry* prev_basetype = current_basetype;
+	current_basetype = te;
+
+	acceptChildren(index, type_die, dwarf_handle, dwarf_error);
+
+	current_basetype = prev_basetype;
+
+	return 0;
+}
+
+unsigned int DwarfIndexer::visitSubrangeType(DwarfIndex &index, Dwarf_Die type_die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
+	Dwarf_Unsigned	upper_bound;
+
+	upper_bound = getDwarfUnsigned(type_die, DW_AT_upper_bound, dwarf_handle, dwarf_error);
+
+	if (current_basetype != 0) {
+		if (current_basetype->type == TT_Array) {
+			current_basetype->type = TT_BoundedArray;
+			current_basetype->upper_bound = upper_bound;
+		}
+	}	
+
+	return 0;
+}
+
+unsigned int DwarfIndexer::visitPointerType(DwarfIndex &index, Dwarf_Die type_die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
+	string 		name;
+	Dwarf_Off	offset;
+	Dwarf_Off	pointee;
+	Dwarf_Unsigned	size;
+	TypeEntry	*te;
+
+	offset = getDwarfOffset(type_die, dwarf_handle, dwarf_error);
+	pointee = getDwarfRefOffset(type_die, DW_AT_type, dwarf_handle, dwarf_error);
+	size = getDwarfUnsigned(type_die, DW_AT_byte_size, dwarf_handle, dwarf_error);
+
+	te = new TypeEntry;
+	te->type = TT_Pointer;
+	te->name = "";
+	te->basetype_off = pointee;
+	te->basetype_type = 0;
+	te->size = size;
+
+	index.types[offset] = te;
+
+	return 0;
+}
+
+unsigned int DwarfIndexer::visitConstType(DwarfIndex &index, Dwarf_Die type_die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
+	string 		name;
+	Dwarf_Off	offset;
+	Dwarf_Off	basetype;
+	Dwarf_Unsigned	size;
+	TypeEntry	*te;
+
+	offset = getDwarfOffset(type_die, dwarf_handle, dwarf_error);
+	basetype = getDwarfRefOffset(type_die, DW_AT_type, dwarf_handle, dwarf_error);
+
+	te = new TypeEntry;
+	te->type = TT_Const;
+	te->name = "";
+	te->basetype_off = basetype;
+	te->basetype_type = 0;
+
+	index.types[offset] = te;
 
 	return 0;
 }
@@ -369,8 +558,8 @@ unsigned int DwarfIndexer::visitVariable(DwarfIndex &index, Dwarf_Die variable_d
 	ve = new VarEntry;
 	ve->name = name;
 	ve->function_id = current_function_id;
-	ve->type = type;
-	if (getDwarfScriptList(variable_die, DW_AT_location, ve->location, dwarf_handle, dwarf_error) != 0) {
+	ve->type_off = type;
+	if (getDwarfScriptList(variable_die, DW_AT_location, ve->location, dwarf_handle, dwarf_error, CU_lopc) != 0) {
 		cerr << "Warning: variable " << ve->name << " has no location." << endl;
 	}
 
@@ -467,7 +656,6 @@ list<VarEntry> DwarfIndexer::getVariables(const FunctionEntry &fe) {
 
 	return vars;
 }
-
 
 list<FunctionEntry> DwarfIndexer::getFunctions() const {
 	list<FunctionEntry> funcs;
