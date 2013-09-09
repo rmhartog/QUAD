@@ -586,7 +586,18 @@ VOID Instruction(INS ins, VOID *v)
 	// a flag can be set to see if we need progress reporting or not
 	INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)IncreaseTotalInstCounter, IARG_END);
 
-	if (!Count_Only) //no need to record memory accesses in count only mode
+	if (INS_IsProcedureCall(ins)) {
+		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)Call, IARG_CONTEXT, IARG_BRANCH_TARGET_ADDR, IARG_END);
+	}
+	else if (INS_IsRet(ins))  	
+	{
+		// we are monitoring the 'ret' instructions since we need to know when we are leaving functions 
+		//in order to update our own virtual 'Call Stack'. The mechanism to inject instrumentation code 
+		//to update the Call Stack (pop) upon leave is not implemented directly contrary to the dive 
+		//in mechanism. Could be a point for further improvement?! ...
+		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)Return, IARG_CONTEXT, IARG_END);
+	}
+	else if (!Count_Only) //no need to record memory accesses in count only mode
 	{
 		//Real filter for functions in Monitor List
 		//record memory access by those functions only which are inside the selected instrumentation function list
@@ -638,19 +649,6 @@ VOID Instruction(INS ins, VOID *v)
 			}
 		}
 	}
-	
-	if (INS_IsProcedureCall(ins)) {
-		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)Call, IARG_CONTEXT, IARG_BRANCH_TARGET_ADDR, IARG_END);
-	}
-	if (INS_IsRet(ins))  	
-	{
-		// we are monitoring the 'ret' instructions since we need to know when we are leaving functions 
-		//in order to update our own virtual 'Call Stack'. The mechanism to inject instrumentation code 
-		//to update the Call Stack (pop) upon leave is not implemented directly contrary to the dive 
-		//in mechanism. Could be a point for further improvement?! ...
-		INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)Return, IARG_CONTEXT, IARG_END);
-	}
-
 }
 
 /* ===================================================================== */
