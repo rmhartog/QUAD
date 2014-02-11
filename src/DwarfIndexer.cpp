@@ -370,6 +370,8 @@ unsigned int DwarfIndexer::accept(DwarfIndex &index, Dwarf_Die die, Dwarf_Debug 
 		return visitPointerType(index, die, dwarf_handle, dwarf_error);
 	case DW_TAG_const_type:
 		return visitConstType(index, die, dwarf_handle, dwarf_error);
+	case DW_TAG_structure_type:
+		return visitStructureType(index, die, dwarf_handle, dwarf_error);
 	case DW_TAG_variable:
 		return visitVariable(index, die, dwarf_handle, dwarf_error);
 	case DW_TAG_formal_parameter:
@@ -539,6 +541,28 @@ unsigned int DwarfIndexer::visitConstType(DwarfIndex &index, Dwarf_Die type_die,
 	te->name = "";
 	te->basetype_off = basetype;
 	te->basetype_type = 0;
+
+	index.types[offset] = te;
+
+	return 0;
+}
+
+unsigned int DwarfIndexer::visitStructureType(DwarfIndex &index, Dwarf_Die type_die, Dwarf_Debug dwarf_handle, Dwarf_Error dwarf_error) {
+	string 		name;
+	Dwarf_Off	offset;
+	Dwarf_Unsigned	size;
+	TypeEntry	*te;
+
+	name = getDwarfName(type_die, dwarf_handle, dwarf_error);
+	offset = getDwarfOffset(type_die, dwarf_handle, dwarf_error);
+	size = getDwarfUnsigned(type_die, DW_AT_byte_size, dwarf_handle, dwarf_error);
+
+	te = new TypeEntry;
+	te->type = TT_Struct;
+	te->name = name;
+	te->size = size;
+
+	// TODO: add structure members.
 
 	index.types[offset] = te;
 

@@ -363,7 +363,7 @@ void recTrieTraverse(struct trieNode* current,int level)
 					fprintf(gfp,"\"];\n");
 				}
 
-				color = (int) (  1023 *  log((double)(temp->data_exchange)) / log((double)MaxLabel)  ); 
+				color = (int) (  1023 *  log((double)(temp->UniqueValues)) / log((double)MaxLabel)  ); 
 				//fprintf(gfp,"\"%08x\" -> \"%08x\"  [label=\"%llu Bytes (%lu UnMAs %llu UnDVs)\" color=\"#%02x%02x%02x\"]\n",(unsigned int)temp->producer,(unsigned int)temp->consumer,temp->data_exchange,(unsigned long int)temp->UniqueMemCells->size(),temp->UniqueValues, max(0,color-768),min(255,512-abs(color-512)), max(0,min(255,512-color)));
 				
 				unsigned long int unma = temp->UniqueMemCells->size();
@@ -619,8 +619,8 @@ int RecordCommunicationInDSGraph(ADDRINT producer, ADDRINT consumer, ADDRINT loc
 	}
 
 	// only needed for graph visualization coloring!
-	if (tempptr->data_exchange > MaxLabel) 
-		MaxLabel=tempptr->data_exchange; 
+	if (tempptr->UniqueValues > MaxLabel) 
+		MaxLabel=tempptr->UniqueValues; 
 	
 	tempptr->UniqueMemCells->insert(locAddr);
 

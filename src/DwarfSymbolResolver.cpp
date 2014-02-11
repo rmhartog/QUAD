@@ -46,24 +46,18 @@ map<unsigned long long, list<VarEntry> > DwarfSymbolResolver::createRelevanceMap
 	list<VarEntry>				variables;
 	list<VarEntry>::iterator		vit;
 
-	cerr << "Rel for " << fe.name << endl;
-
 	map<unsigned long long, list<VarEntry> >	relevantVariables;
 	if (indexer != 0) {
 		variables = indexer->getVariables(fe);
 
 		for (vit = variables.begin(); vit != variables.end(); vit++) {
-			cerr << "   " << vit->name << endl;
-
 			DwarfScriptList::iterator slit;
 
 			for (slit = vit->location.begin(); slit != vit->location.end(); slit++) {
-				cerr << "      " << slit->lowpc << " - " << slit->hipc << endl;
 				if (slit->lowpc == 0 && (slit->hipc == 0 || slit->hipc == (unsigned long long) -1)) {
 					relevantVariables[(unsigned long long) -1].push_back(*vit);
 				} else {
 					for (unsigned long long addr = slit->lowpc; addr < slit->hipc; addr++) {
-						cerr << "         " << addr << endl;
 						relevantVariables[addr].push_back(*vit);
 					}
 				}
@@ -153,9 +147,6 @@ const class VariableSymbol *DwarfSymbolResolver::toSymbol(const struct VarEntry 
 	return symbol;
 }
 
-#include <iostream>
-using namespace std;
-
 unsigned int DwarfSymbolResolver::findFunction(void *addr, FunctionEntry *fe) const {
 	list<FunctionEntry>		functions;
 	list<FunctionEntry>::iterator	fit;
@@ -181,7 +172,7 @@ unsigned int DwarfSymbolResolver::findGlobalVariable(const ExecutionContext &con
 	if (indexer != 0) {
 		variables = indexer->getVariables();
 		
-		for (vit = variables.begin(); vit != variables.end(); vit++) {		
+		for (vit = variables.begin(); vit != variables.end(); vit++) {
 			TypeEntry type = vit->type;
 			void* vaddr;
 			size_t vsize = type.size; 
@@ -240,8 +231,6 @@ unsigned int DwarfSymbolResolver::findLocalVariable(const ExecutionContext &cont
 			cerr << "Evaluate failed for " << vit->name << " in " << fe.name << endl; 
 		}
 	}
-
-	cerr << "Lookup local. (" << fe.name << ", " << addr << ") - FAILED" << endl;
 	return 1;
 }
 

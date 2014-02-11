@@ -22,7 +22,8 @@ enum TypeType {
      TT_Array,
      TT_BoundedArray,
      TT_Pointer,
-     TT_Const
+     TT_Const,
+     TT_Struct
 };
 
 struct TypeEntry {
@@ -97,6 +98,7 @@ public:
      unsigned int visitSubrangeType(DwarfIndex&, Dwarf_Die, Dwarf_Debug, Dwarf_Error);
      unsigned int visitPointerType(DwarfIndex&, Dwarf_Die, Dwarf_Debug, Dwarf_Error);
      unsigned int visitConstType(DwarfIndex&, Dwarf_Die, Dwarf_Debug, Dwarf_Error);
+     unsigned int visitStructureType(DwarfIndex&, Dwarf_Die, Dwarf_Debug, Dwarf_Error);
      unsigned int visitVariable(DwarfIndex&, Dwarf_Die, Dwarf_Debug, Dwarf_Error);
      unsigned int visitSubProgram(DwarfIndex&, Dwarf_Die, Dwarf_Debug, Dwarf_Error);
 
